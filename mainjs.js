@@ -7,6 +7,7 @@ const graphContainer = document.getElementById('graphContainer');
 const detailsContent = document.getElementById('detailsContent');
 const repoDetailsContainer = document.getElementById('repoDetails');
 const repoOverviewContainer = document.getElementById('repoOverviewContainer');
+const fileTreeContainer = document.getElementById('fileTreeContainer');
 const messageOverlay = document.getElementById('messageOverlay');
 const messageText = document.getElementById('messageText');
 const howToTokenBtn = document.getElementById('howToTokenBtn');
@@ -16,15 +17,19 @@ const gotItBtn = document.getElementById('gotItBtn');
 const errorModal = document.getElementById('errorModal');
 const errorModalText = document.getElementById('errorModalText');
 const closeErrorModalBtn = document.getElementById('closeErrorModalBtn');
-const repoOverviewModal = document.getElementById('repoOverviewModal');
-const repoOverviewResult = document.getElementById('repoOverviewResult');
-const closeRepoOverviewModalBtn = document.getElementById('closeRepoOverviewModalBtn');
-const gotItRepoOverviewBtn = document.getElementById('gotItRepoOverviewBtn');
-const fileExplanationModal = document.getElementById('fileExplanationModal');
-const fileExplanationResult = document.getElementById('fileExplanationResult');
-const closeFileExplanationModalBtn = document.getElementById('closeFileExplanationModalBtn');
-const gotItFileExplanationBtn = document.getElementById('gotItFileExplanationBtn');
-let searchInput; 
+const aiModal = document.getElementById('aiModal');
+const aiModalTitle = document.getElementById('aiModalTitle');
+const aiModalResult = document.getElementById('aiModalResult');
+const closeAiModalBtn = document.getElementById('closeAiModalBtn');
+const gotItAiModalBtn = document.getElementById('gotItAiModalBtn');
+const fileTreeModal = document.getElementById('fileTreeModal');
+const fullFileTreeContainer = document.getElementById('fullFileTreeContainer');
+const closeFileTreeModalBtn = document.getElementById('closeFileTreeModalBtn');
+const gotItFileTreeModalBtn = document.getElementById('gotItFileTreeModalBtn');
+const viewMoreTreeBtn = document.getElementById('viewMoreTreeBtn');
+const fileTreeSearchInput = document.getElementById('fileTreeSearchInput');
+const forgetTokenBtn = document.getElementById('forgetTokenBtn');
+let searchInput, fileTypeFilter, exportBtn;
 
 // --- State ---
 let currentOwner, currentRepo;
@@ -37,38 +42,34 @@ let simulation;
 // --- Event Listeners ---
 analyzeBtn.addEventListener('click', handleAnalyzeClick);
 repoUrlInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-        handleAnalyzeClick();
-    }
+    if (e.key === 'Enter') handleAnalyzeClick();
 });
 howToTokenBtn.addEventListener('click', () => openModal(tokenModal));
 closeModalBtn.addEventListener('click', () => closeModal(tokenModal));
 gotItBtn.addEventListener('click', () => closeModal(tokenModal));
 tokenModal.addEventListener('click', (e) => {
-    if (e.target === tokenModal) {
-        closeModal(tokenModal);
-    }
+    if (e.target === tokenModal) closeModal(tokenModal);
 });
 closeErrorModalBtn.addEventListener('click', () => closeModal(errorModal));
 errorModal.addEventListener('click', (e) => {
-    if (e.target === errorModal) {
-        closeModal(errorModal);
-    }
+    if (e.target === errorModal) closeModal(errorModal);
 });
-closeRepoOverviewModalBtn.addEventListener('click', () => closeModal(repoOverviewModal));
-gotItRepoOverviewBtn.addEventListener('click', () => closeModal(repoOverviewModal));
-repoOverviewModal.addEventListener('click', (e) => {
-    if (e.target === repoOverviewModal) {
-        closeModal(repoOverviewModal);
-    }
+closeAiModalBtn.addEventListener('click', () => closeModal(aiModal));
+gotItAiModalBtn.addEventListener('click', () => closeModal(aiModal));
+aiModal.addEventListener('click', (e) => {
+    if (e.target === aiModal) closeModal(aiModal);
 });
-closeFileExplanationModalBtn.addEventListener('click', () => closeModal(fileExplanationModal));
-gotItFileExplanationBtn.addEventListener('click', () => closeModal(fileExplanationModal));
-fileExplanationModal.addEventListener('click', (e) => {
-    if (e.target === fileExplanationModal) {
-        closeModal(fileExplanationModal);
-    }
+viewMoreTreeBtn.addEventListener('click', () => openModal(fileTreeModal));
+closeFileTreeModalBtn.addEventListener('click', () => closeModal(fileTreeModal));
+gotItFileTreeModalBtn.addEventListener('click', () => closeModal(fileTreeModal));
+fileTreeModal.addEventListener('click', (e) => {
+    if (e.target === fileTreeModal) closeModal(fileTreeModal);
 });
+fileTreeSearchInput.addEventListener('input', () => {
+    const query = fileTreeSearchInput.value.toLowerCase().trim();
+    filterFileTree(fullFileTreeContainer, query);
+});
+forgetTokenBtn.addEventListener('click', forgetToken);
 
 
 // --- Modal Functions ---
@@ -87,10 +88,10 @@ function closeModal(modal) {
     content.style.transform = 'scale(0.95) translateY(1rem)';
     setTimeout(() => {
         modal.classList.add('hidden');
-    }, 400); 
+    }, 400);
 }
 
-[tokenModal, errorModal, repoOverviewModal, fileExplanationModal].forEach(modal => {
+[tokenModal, errorModal, aiModal, fileTreeModal].forEach(modal => {
     const content = modal.querySelector('.modal-content');
     content.style.transform = 'scale(0.95) translateY(1rem)';
 });
@@ -110,49 +111,54 @@ async function handleAnalyzeClick() {
 
     currentOwner = match[1];
     currentRepo = match[2];
-    
+
     analyzeBtn.disabled = true;
     analyzeBtn.classList.add('opacity-50', 'cursor-not-allowed');
 
     showMessage('Fetching repository information...');
     mainContent.classList.add('hidden');
 
+    saveToken();
+
     try {
         const repoInfo = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}`);
         const commitsData = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/commits?per_page=100`);
-        
+
         displayRepoInfo(repoInfo, commitsData);
 
         const defaultBranch = repoInfo.default_branch;
-        
+
         showMessage('Fetching file tree...');
         const treeData = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/git/trees/${defaultBranch}?recursive=1`);
-        
+
         repoFiles = treeData.tree.filter(file => {
             const path = file.path.toLowerCase();
             const isIgnored = path.includes('node_modules/') || path.includes('dist/') || path.includes('vendor/') || path.startsWith('.') || path.includes('test/') || path.includes('example/');
-            const isSupported = /\.(js|mjs|jsx|ts|tsx|html|css|py|json)$/.test(path);
+            const isSupported = /\.(js|mjs|jsx|ts|tsx|html|css|py|json|go|rb|java|php)$/.test(path);
             return file.type === 'blob' && isSupported && !isIgnored;
         });
-        
+
         if (repoFiles.length > 200) {
-            showMessage(`Warning: Found ${repoFiles.length} files. Truncating to the first 200 for performance.`, false);
+            showMessage(`Warning: Found ${repoFiles.length} files. Truncating for performance.`, false);
             repoFiles = repoFiles.slice(0, 200);
         }
 
         showMessage(`Found ${repoFiles.length} files. Analyzing dependencies...`, false);
         dependencies = await analyzeFileDependencies(currentOwner, currentRepo);
-        
+
         const nodeData = repoFiles.map(file => ({ id: file.path, label: file.path.split('/').pop(), fullPath: file.path }));
         const edgeData = dependencies.map(dep => ({ source: dep.from, target: dep.to }));
 
         mainContent.classList.remove('hidden');
-        searchInput = document.getElementById('searchInput');
-        searchInput.addEventListener('input', handleSearch);
+        initializeGraphControls();
 
         hideMessage();
+        const fileTreeData = buildFileTreeData(repoFiles);
+        renderFileTree(fileTreeData, fileTreeContainer); // Render preview
+        renderFileTree(fileTreeData, fullFileTreeContainer); // Render full tree in modal
         renderGraph(nodeData, edgeData);
         updateDetailsPanel(null);
+        populateFileTypeFilter();
 
     } catch (error) {
         console.error('Error analyzing repository:', error);
@@ -165,12 +171,34 @@ async function handleAnalyzeClick() {
     }
 }
 
+function initializeGraphControls() {
+    searchInput = document.getElementById('searchInput');
+    fileTypeFilter = document.getElementById('fileTypeFilter');
+    exportBtn = document.getElementById('exportBtn');
+
+    searchInput.addEventListener('input', handleSearch);
+    fileTypeFilter.addEventListener('change', handleFilter);
+    exportBtn.addEventListener('click', handleExport);
+}
+
 function handleSearch() {
     const query = searchInput.value.toLowerCase().trim();
+    filterGraph(query, fileTypeFilter.value);
+}
+
+function handleFilter() {
+    const type = fileTypeFilter.value;
+    filterGraph(searchInput.value.toLowerCase().trim(), type);
+}
+
+function filterGraph(query, type) {
     const allNodes = d3.selectAll('.node');
     const allEdges = d3.selectAll('.edge');
-    
-    if (!query) {
+
+    const isSearchActive = query.length > 0;
+    const isFilterActive = type !== 'all';
+
+    if (!isSearchActive && !isFilterActive) {
         allNodes.classed('searched', false);
         allNodes.transition().duration(300).style('opacity', 1);
         allEdges.transition().duration(300).style('opacity', 0.5);
@@ -179,21 +207,39 @@ function handleSearch() {
 
     const matchedNodeIds = new Set();
     nodes.forEach(node => {
-        if (node.label.toLowerCase().includes(query)) {
+        const matchesSearch = isSearchActive ? node.label.toLowerCase().includes(query) : true;
+        const matchesType = isFilterActive ? node.id.endsWith(type) : true;
+        if (matchesSearch && matchesType) {
             matchedNodeIds.add(node.id);
         }
     });
 
-    allNodes.classed('searched', d => matchedNodeIds.has(d.id));
+    allNodes.classed('searched', d => isSearchActive && matchedNodeIds.has(d.id));
     allNodes.transition().duration(300)
         .style('opacity', d => matchedNodeIds.has(d.id) ? 1 : 0.1);
-    
+
     allEdges.transition().duration(300)
-        .style('opacity', 0.1);
+        .style('opacity', d => matchedNodeIds.has(d.source.id) && matchedNodeIds.has(d.target.id) ? 0.5 : 0.05);
 }
 
+function populateFileTypeFilter() {
+    const fileTypes = new Set(nodes.map(n => {
+        const parts = n.id.split('.');
+        return parts.length > 1 ? `.${parts.pop()}` : '';
+    }).filter(Boolean));
+
+    fileTypeFilter.innerHTML = '<option value="all">All File Types</option>';
+    [...fileTypes].sort().forEach(type => {
+        const option = document.createElement('option');
+        option.value = type;
+        option.textContent = type;
+        fileTypeFilter.appendChild(option);
+    });
+}
+
+
 function displayRepoInfo(repoInfo, commitsData) {
-    const totalCommits = commitsData.length; 
+    const totalCommits = commitsData.length;
 
     repoDetailsContainer.innerHTML = `
         <div class="flex items-center space-x-4">
@@ -221,7 +267,7 @@ function displayRepoInfo(repoInfo, commitsData) {
             </div>
         </div>
     `;
-    
+
     repoOverviewContainer.innerHTML = `
         <button id="generateRepoOverviewBtn" class="w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center shadow-lg">
             Generate Repo Overview
@@ -239,7 +285,7 @@ async function analyzeFileDependencies(owner, repo) {
             const contentResponse = await apiFetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file.path}`);
             const fileContent = atob(contentResponse.content);
             const foundImports = parseContentForImports(fileContent, file.path);
-            
+
             foundImports.forEach(imp => {
                 const targetPath = resolvePath(file.path, imp);
                 if (filePaths.has(targetPath)) {
@@ -260,7 +306,7 @@ function parseContentForImports(content, path) {
     const importRegex = /(?:import|from|require)\s*(?:(?:\{[^}]*\}|\* as \w+)\s*from\s*)?['"]((?:\.\/|\.\.\/)[^'"]+?)(?:\.js|\.ts|\.mjs|\.jsx|\.tsx)?['"]/g;
     const htmlRegex = /(?:href|src)=['"]((?:\.\/|\.\.\/)[^'"]+\.(?:css|js|png|jpg|svg))/g;
     const regex = path.endsWith('.html') ? htmlRegex : importRegex;
-    
+
     let match;
     while ((match = regex.exec(content)) !== null) {
         imports.add(match[1]);
@@ -271,12 +317,12 @@ function parseContentForImports(content, path) {
 function resolvePath(basePath, relativePath) {
     const baseParts = basePath.split('/').slice(0, -1);
     const relativeParts = relativePath.split('/');
-    
+
     for (const part of relativeParts) {
         if (part === '..') baseParts.pop();
         else if (part !== '.') baseParts.push(part);
     }
-    
+
     let resolved = baseParts.join('/');
     const filePaths = new Set(repoFiles.map(f => f.path));
 
@@ -341,7 +387,7 @@ function renderGraph(nodeData, edgeData) {
         .attr("class", "node")
         .style("opacity", 0)
         .call(drag(simulation))
-        .on("mouseover", function() {
+        .on("mouseover", function () {
             d3.select(this).raise();
         });
 
@@ -355,17 +401,17 @@ function renderGraph(nodeData, edgeData) {
         .attr("r", d => 6 + Math.sqrt(nodeDegrees[d.id] || 1) * 2.5)
         .attr("fill", "#1f2937")
         .attr("stroke", "#4b5563");
-    
+
     node.append("text")
         .attr("y", d => (15 + Math.sqrt(nodeDegrees[d.id] || 1) * 2.5) * -1)
         .attr("class", "node-label")
         .text(d => d.label);
-    
+
     node.on("click", (event, d) => {
         event.stopPropagation();
         handleNodeClick(d.id);
     });
-    
+
     node.transition()
         .duration(700)
         .delay((d, i) => i * 7)
@@ -421,6 +467,15 @@ function handleNodeClick(nodeId) {
         handleSearch();
     }
 
+    document.querySelectorAll('.tree-item').forEach(item => {
+        item.classList.remove('selected');
+    });
+    if (nodeId) {
+        document.querySelectorAll(`.tree-item[data-path="${nodeId}"]`).forEach(item => {
+            item.classList.add('selected');
+        });
+    }
+
     selectedNodeId = (selectedNodeId === nodeId) ? null : nodeId;
     updateDetailsPanel(selectedNodeId);
     highlightNodes(selectedNodeId);
@@ -462,7 +517,7 @@ function highlightNodes(nodeId) {
 
 function updateDetailsPanel(nodeId) {
     if (!nodeId) {
-        detailsContent.innerHTML = '<p class="mt-10 text-center text-gray-400">Click a file to see its details or click the background to clear.</p>';
+        detailsContent.innerHTML = '<p class="mt-10 text-center text-gray-400">Click a file to see its details.</p>';
         return;
     }
 
@@ -488,27 +543,138 @@ function updateDetailsPanel(nodeId) {
             <p class="text-sm text-gray-400 mb-2">Files that use this file (click to select).</p>
             <ul class="text-sm space-y-1">${createList(nodeDependents)}</ul>
         </div>
-        <div id="fileExplanationContainer" class="mt-6">
+        <div id="fileExplanationContainer" class="mt-6 space-y-2">
             <button id="explainFileBtn" class="w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center shadow-lg">
                 Explain this file
+            </button>
+            <button id="refineFileBtn" class="w-full bg-purple-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-purple-700 transition duration-300 flex items-center justify-center shadow-lg">
+                Suggest Refinements
             </button>
         </div>
     `;
     document.getElementById('explainFileBtn').addEventListener('click', () => handleExplainFile(nodeId));
+    document.getElementById('refineFileBtn').addEventListener('click', () => handleRefineFile(nodeId));
 }
+
+// --- File Tree Functions ---
+function buildFileTreeData(files) {
+    const tree = { name: "root", type: "folder", children: [] };
+    files.forEach(file => {
+        let currentLevel = tree.children;
+        const pathParts = file.path.split('/');
+        pathParts.forEach((part, i) => {
+            const isLastPart = i === pathParts.length - 1;
+            let existingPath = currentLevel.find(item => item.name === part);
+
+            if (existingPath) {
+                currentLevel = existingPath.children;
+            } else {
+                const newEntry = {
+                    name: part,
+                    type: isLastPart ? "file" : "folder",
+                    path: isLastPart ? file.path : null,
+                    children: isLastPart ? null : []
+                };
+                currentLevel.push(newEntry);
+                if (!isLastPart) {
+                    currentLevel = newEntry.children;
+                }
+            }
+        });
+    });
+    return tree;
+}
+
+function renderFileTree(treeData, container) {
+    container.innerHTML = '';
+    const rootUl = document.createElement('ul');
+    rootUl.className = 'file-tree';
+
+    function createTreeHtml(items, parentElement) {
+        items.forEach(item => {
+            const li = document.createElement('li');
+            li.className = item.type === 'folder' ? 'tree-folder collapsed' : 'tree-file';
+
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'tree-item';
+            itemDiv.innerHTML = `<span class="icon"></span><span>${item.name}</span>`;
+
+            if (item.type === 'file') {
+                itemDiv.dataset.path = item.path;
+                itemDiv.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    handleNodeClick(item.path);
+                });
+            } else { // It's a folder
+                itemDiv.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    li.classList.toggle('collapsed');
+                });
+            }
+
+            li.appendChild(itemDiv);
+
+            if (item.children && item.children.length > 0) {
+                const childrenUl = document.createElement('ul');
+                createTreeHtml(item.children, childrenUl);
+                li.appendChild(childrenUl);
+            }
+
+            parentElement.appendChild(li);
+        });
+    }
+
+    createTreeHtml(treeData.children, rootUl);
+    container.appendChild(rootUl);
+}
+
+function filterFileTree(container, query) {
+    const allItems = container.querySelectorAll('li.tree-file');
+    const allFolders = container.querySelectorAll('li.tree-folder');
+
+    if (!query) {
+        allItems.forEach(item => item.style.display = 'block');
+        allFolders.forEach(folder => {
+            folder.style.display = 'block';
+            folder.classList.add('collapsed');
+        });
+        return;
+    }
+
+    allItems.forEach(item => item.style.display = 'none');
+    allFolders.forEach(folder => folder.style.display = 'none');
+
+    const matchedItems = new Set();
+
+    allItems.forEach(item => {
+        const itemName = item.querySelector('span:last-child').textContent.toLowerCase();
+        if (itemName.includes(query)) {
+            item.style.display = 'block';
+            matchedItems.add(item);
+        }
+    });
+
+    matchedItems.forEach(item => {
+        let current = item.parentElement;
+        while (current && current !== container) {
+            if (current.tagName === 'LI' && current.classList.contains('tree-folder')) {
+                current.style.display = 'block';
+                current.classList.remove('collapsed');
+            }
+            current = current.parentElement;
+        }
+    });
+}
+
 
 // --- Utility Functions ---
 async function apiFetch(url) {
     const token = githubTokenInput.value.trim();
-    const headers = {
-        'Accept': 'application/vnd.github.v3+json'
-    };
+    const headers = { 'Accept': 'application/vnd.github.v3+json' };
     if (token) {
         headers['Authorization'] = `token ${token}`;
     }
-
     const response = await fetch(url, { headers });
-    
     if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || `API request failed: ${response.status}`);
@@ -533,7 +699,8 @@ function simpleMarkdownToHtml(markdown) {
         .replace(/<\/li><br>/g, '</li>')
         .replace(/(<li>.*<\/li>)/g, '<ul>$1</ul>')
         .replace(/<\/ul><br><ul>/g, '')
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/```(\w*)\s*([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>');
     return html;
 }
 
@@ -541,12 +708,8 @@ function simpleMarkdownToHtml(markdown) {
 async function callGeminiAPI(prompt) {
     const apiKey = ""; // Leave empty, handled by environment
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-    
-    const payload = {
-        contents: [{
-            parts: [{ text: prompt }]
-        }]
-    };
+
+    const payload = { contents: [{ parts: [{ text: prompt }] }] };
 
     const response = await fetch(apiUrl, {
         method: 'POST',
@@ -554,12 +717,9 @@ async function callGeminiAPI(prompt) {
         body: JSON.stringify(payload)
     });
 
-    if (!response.ok) {
-        throw new Error(`Gemini API request failed with status ${response.status}`);
-    }
-
+    if (!response.ok) throw new Error(`Gemini API request failed with status ${response.status}`);
     const result = await response.json();
-    if (result.candidates && result.candidates.length > 0 && result.candidates[0].content && result.candidates[0].content.parts && result.candidates[0].content.parts.length > 0) {
+    if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
         return result.candidates[0].content.parts[0].text;
     } else {
         throw new Error("Invalid response structure from Gemini API.");
@@ -569,40 +729,132 @@ async function callGeminiAPI(prompt) {
 async function handleGenerateRepoOverview() {
     const btn = document.getElementById('generateRepoOverviewBtn');
     btn.disabled = true;
-    btn.innerHTML = ' Generating...';
-    repoOverviewResult.innerHTML = '<div class="custom-loader mx-auto"></div>';
-    openModal(repoOverviewModal);
+    btn.innerHTML = 'Generating...';
+    aiModalTitle.textContent = 'AI-Powered Repository Overview';
+    aiModalResult.innerHTML = '<div class="custom-loader mx-auto"></div>';
+    openModal(aiModal);
 
     try {
         const fileList = repoFiles.map(f => f.path).join('\n');
-        const prompt = `Based on this list of file paths from a software repository, provide a high-level overview of the project's likely purpose and architecture. Format the response using Markdown with ### for headings, * for list items, and ** for bold text. What kind of application is this (e.g., web app, data visualization library)? What technologies are likely being used?\n\nFile list:\n${fileList}`;
+        const prompt = `Based on this list of file paths from a software repository, provide a high-level overview of the project's likely purpose and architecture. Format the response using Markdown. What kind of application is this? What technologies are likely being used?\n\nFile list:\n${fileList}`;
         const overview = await callGeminiAPI(prompt);
-        repoOverviewResult.innerHTML = simpleMarkdownToHtml(overview);
+        aiModalResult.innerHTML = simpleMarkdownToHtml(overview);
     } catch (error) {
-        repoOverviewResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
+        aiModalResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
     } finally {
         btn.disabled = false;
-        btn.innerHTML = ' Generate Repo Overview';
+        btn.innerHTML = 'Generate Repo Overview';
     }
 }
 
 async function handleExplainFile(filePath) {
     const btn = document.getElementById('explainFileBtn');
     btn.disabled = true;
-    btn.innerHTML = ' Explaining...';
-    fileExplanationResult.innerHTML = '<div class="custom-loader mx-auto"></div>';
-    openModal(fileExplanationModal);
+    btn.innerHTML = 'Explaining...';
+    aiModalTitle.textContent = 'AI-Powered File Explanation';
+    aiModalResult.innerHTML = '<div class="custom-loader mx-auto"></div>';
+    openModal(aiModal);
 
     try {
         const contentResponse = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/contents/${filePath}`);
         const fileContent = atob(contentResponse.content);
-        const prompt = `Explain what this code does in simple terms. Focus on its primary purpose and how it might interact with other files. Format the response using Markdown with ### for headings, * for list items, and ** for bold text. Here is the code for the file "${filePath}":\n\n\`\`\`\n${fileContent}\n\`\`\``;
+        const prompt = `Explain what this code does in simple terms. Format the response using Markdown. Focus on its primary purpose and how it might interact with other files. Here is the code for the file "${filePath}":\n\n\`\`\`\n${fileContent}\n\`\`\``;
         const explanation = await callGeminiAPI(prompt);
-        fileExplanationResult.innerHTML = simpleMarkdownToHtml(explanation);
+        aiModalResult.innerHTML = simpleMarkdownToHtml(explanation);
     } catch (error) {
-        fileExplanationResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
+        aiModalResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
     } finally {
         btn.disabled = false;
-        btn.innerHTML = ' Explain this file';
+        btn.innerHTML = 'Explain this file';
     }
 }
+
+async function handleRefineFile(filePath) {
+    const btn = document.getElementById('refineFileBtn');
+    btn.disabled = true;
+    btn.innerHTML = 'Analyzing...';
+    aiModalTitle.textContent = 'AI-Powered Refinement Suggestions';
+    aiModalResult.innerHTML = '<div class="custom-loader mx-auto"></div>';
+    openModal(aiModal);
+
+    try {
+        const contentResponse = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/contents/${filePath}`);
+        const fileContent = atob(contentResponse.content);
+        const prompt = `Act as a senior software engineer performing a code review. Analyze the following code from the file "${filePath}". Provide actionable suggestions for refinement. Focus on improving readability, efficiency, and adherence to best practices. Do not rewrite the entire file, but instead, identify specific code blocks and explain how they could be improved. Format the response using Markdown. \n\n\`\`\`\n${fileContent}\n\`\`\``;
+        const refinement = await callGeminiAPI(prompt);
+        aiModalResult.innerHTML = simpleMarkdownToHtml(refinement);
+    } catch (error) {
+        aiModalResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Suggest Refinements';
+    }
+}
+
+function handleExport() {
+    const svgElement = graphContainer.querySelector('svg');
+    if (!svgElement) {
+        openModal(errorModal);
+        errorModalText.textContent = 'No graph to export.';
+        return;
+    }
+
+    svgElement.style.backgroundColor = '#111827';
+
+    const svgData = new XMLSerializer().serializeToString(svgElement);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    const scale = 2;
+    const scaledWidth = svgElement.clientWidth * scale;
+    const scaledHeight = svgElement.clientHeight * scale;
+    canvas.width = scaledWidth;
+    canvas.height = scaledHeight;
+
+    const img = new Image();
+    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+
+    img.onload = () => {
+        ctx.drawImage(img, 0, 0, scaledWidth, scaledHeight);
+        svgElement.style.backgroundColor = '';
+
+        const pngUrl = canvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = pngUrl;
+        a.download = `${currentRepo}-dependency-graph.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    };
+    img.onerror = () => {
+        svgElement.style.backgroundColor = '';
+        openModal(errorModal);
+        errorModalText.textContent = 'Could not export the image.';
+    }
+}
+
+// --- Token Management ---
+function saveToken() {
+    const token = githubTokenInput.value.trim();
+    if (token) {
+        localStorage.setItem('githubToken', token);
+        forgetTokenBtn.classList.remove('hidden');
+    }
+}
+
+function loadToken() {
+    const token = localStorage.getItem('githubToken');
+    if (token) {
+        githubTokenInput.value = token;
+        forgetTokenBtn.classList.remove('hidden');
+    }
+}
+
+function forgetToken() {
+    localStorage.removeItem('githubToken');
+    githubTokenInput.value = '';
+    forgetTokenBtn.classList.add('hidden');
+}
+
+// Load token on initial page load
+document.addEventListener('DOMContentLoaded', loadToken);
