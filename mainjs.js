@@ -29,7 +29,7 @@ const gotItFileTreeModalBtn = document.getElementById('gotItFileTreeModalBtn');
 const viewMoreTreeBtn = document.getElementById('viewMoreTreeBtn');
 const fileTreeSearchInput = document.getElementById('fileTreeSearchInput');
 const forgetTokenBtn = document.getElementById('forgetTokenBtn');
-let searchInput, fileTypeFilter, exportBtn;
+let searchInput, fileTypeFilter, exportBtn; 
 
 // --- State ---
 let currentOwner, currentRepo;
@@ -88,7 +88,7 @@ function closeModal(modal) {
     content.style.transform = 'scale(0.95) translateY(1rem)';
     setTimeout(() => {
         modal.classList.add('hidden');
-    }, 400);
+    }, 400); 
 }
 
 [tokenModal, errorModal, aiModal, fileTreeModal].forEach(modal => {
@@ -111,33 +111,33 @@ async function handleAnalyzeClick() {
 
     currentOwner = match[1];
     currentRepo = match[2];
-
+    
     analyzeBtn.disabled = true;
     analyzeBtn.classList.add('opacity-50', 'cursor-not-allowed');
 
     showMessage('Fetching repository information...');
     mainContent.classList.add('hidden');
-
+    
     saveToken();
 
     try {
         const repoInfo = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}`);
         const commitsData = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/commits?per_page=100`);
-
+        
         displayRepoInfo(repoInfo, commitsData);
 
         const defaultBranch = repoInfo.default_branch;
-
+        
         showMessage('Fetching file tree...');
         const treeData = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/git/trees/${defaultBranch}?recursive=1`);
-
+        
         repoFiles = treeData.tree.filter(file => {
             const path = file.path.toLowerCase();
             const isIgnored = path.includes('node_modules/') || path.includes('dist/') || path.includes('vendor/') || path.startsWith('.') || path.includes('test/') || path.includes('example/');
             const isSupported = /\.(js|mjs|jsx|ts|tsx|html|css|py|json|go|rb|java|php)$/.test(path);
             return file.type === 'blob' && isSupported && !isIgnored;
         });
-
+        
         if (repoFiles.length > 200) {
             showMessage(`Warning: Found ${repoFiles.length} files. Truncating for performance.`, false);
             repoFiles = repoFiles.slice(0, 200);
@@ -145,7 +145,7 @@ async function handleAnalyzeClick() {
 
         showMessage(`Found ${repoFiles.length} files. Analyzing dependencies...`, false);
         dependencies = await analyzeFileDependencies(currentOwner, currentRepo);
-
+        
         const nodeData = repoFiles.map(file => ({ id: file.path, label: file.path.split('/').pop(), fullPath: file.path }));
         const edgeData = dependencies.map(dep => ({ source: dep.from, target: dep.to }));
 
@@ -175,7 +175,7 @@ function initializeGraphControls() {
     searchInput = document.getElementById('searchInput');
     fileTypeFilter = document.getElementById('fileTypeFilter');
     exportBtn = document.getElementById('exportBtn');
-
+    
     searchInput.addEventListener('input', handleSearch);
     fileTypeFilter.addEventListener('change', handleFilter);
     exportBtn.addEventListener('click', handleExport);
@@ -217,7 +217,7 @@ function filterGraph(query, type) {
     allNodes.classed('searched', d => isSearchActive && matchedNodeIds.has(d.id));
     allNodes.transition().duration(300)
         .style('opacity', d => matchedNodeIds.has(d.id) ? 1 : 0.1);
-
+    
     allEdges.transition().duration(300)
         .style('opacity', d => matchedNodeIds.has(d.source.id) && matchedNodeIds.has(d.target.id) ? 0.5 : 0.05);
 }
@@ -227,7 +227,7 @@ function populateFileTypeFilter() {
         const parts = n.id.split('.');
         return parts.length > 1 ? `.${parts.pop()}` : '';
     }).filter(Boolean));
-
+    
     fileTypeFilter.innerHTML = '<option value="all">All File Types</option>';
     [...fileTypes].sort().forEach(type => {
         const option = document.createElement('option');
@@ -239,7 +239,7 @@ function populateFileTypeFilter() {
 
 
 function displayRepoInfo(repoInfo, commitsData) {
-    const totalCommits = commitsData.length;
+    const totalCommits = commitsData.length; 
 
     repoDetailsContainer.innerHTML = `
         <div class="flex items-center space-x-4">
@@ -267,7 +267,7 @@ function displayRepoInfo(repoInfo, commitsData) {
             </div>
         </div>
     `;
-
+    
     repoOverviewContainer.innerHTML = `
         <button id="generateRepoOverviewBtn" class="w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center shadow-lg">
             Generate Repo Overview
@@ -285,7 +285,7 @@ async function analyzeFileDependencies(owner, repo) {
             const contentResponse = await apiFetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file.path}`);
             const fileContent = atob(contentResponse.content);
             const foundImports = parseContentForImports(fileContent, file.path);
-
+            
             foundImports.forEach(imp => {
                 const targetPath = resolvePath(file.path, imp);
                 if (filePaths.has(targetPath)) {
@@ -306,7 +306,7 @@ function parseContentForImports(content, path) {
     const importRegex = /(?:import|from|require)\s*(?:(?:\{[^}]*\}|\* as \w+)\s*from\s*)?['"]((?:\.\/|\.\.\/)[^'"]+?)(?:\.js|\.ts|\.mjs|\.jsx|\.tsx)?['"]/g;
     const htmlRegex = /(?:href|src)=['"]((?:\.\/|\.\.\/)[^'"]+\.(?:css|js|png|jpg|svg))/g;
     const regex = path.endsWith('.html') ? htmlRegex : importRegex;
-
+    
     let match;
     while ((match = regex.exec(content)) !== null) {
         imports.add(match[1]);
@@ -317,12 +317,12 @@ function parseContentForImports(content, path) {
 function resolvePath(basePath, relativePath) {
     const baseParts = basePath.split('/').slice(0, -1);
     const relativeParts = relativePath.split('/');
-
+    
     for (const part of relativeParts) {
         if (part === '..') baseParts.pop();
         else if (part !== '.') baseParts.push(part);
     }
-
+    
     let resolved = baseParts.join('/');
     const filePaths = new Set(repoFiles.map(f => f.path));
 
@@ -387,7 +387,7 @@ function renderGraph(nodeData, edgeData) {
         .attr("class", "node")
         .style("opacity", 0)
         .call(drag(simulation))
-        .on("mouseover", function () {
+        .on("mouseover", function() {
             d3.select(this).raise();
         });
 
@@ -401,17 +401,17 @@ function renderGraph(nodeData, edgeData) {
         .attr("r", d => 6 + Math.sqrt(nodeDegrees[d.id] || 1) * 2.5)
         .attr("fill", "#1f2937")
         .attr("stroke", "#4b5563");
-
+    
     node.append("text")
         .attr("y", d => (15 + Math.sqrt(nodeDegrees[d.id] || 1) * 2.5) * -1)
         .attr("class", "node-label")
         .text(d => d.label);
-
+    
     node.on("click", (event, d) => {
         event.stopPropagation();
         handleNodeClick(d.id);
     });
-
+    
     node.transition()
         .duration(700)
         .delay((d, i) => i * 7)
@@ -466,7 +466,7 @@ function handleNodeClick(nodeId) {
         searchInput.value = '';
         handleSearch();
     }
-
+    
     document.querySelectorAll('.tree-item').forEach(item => {
         item.classList.remove('selected');
     });
@@ -589,16 +589,16 @@ function renderFileTree(treeData, container) {
     container.innerHTML = '';
     const rootUl = document.createElement('ul');
     rootUl.className = 'file-tree';
-
+    
     function createTreeHtml(items, parentElement) {
         items.forEach(item => {
             const li = document.createElement('li');
             li.className = item.type === 'folder' ? 'tree-folder collapsed' : 'tree-file';
-
+            
             const itemDiv = document.createElement('div');
             itemDiv.className = 'tree-item';
             itemDiv.innerHTML = `<span class="icon"></span><span>${item.name}</span>`;
-
+            
             if (item.type === 'file') {
                 itemDiv.dataset.path = item.path;
                 itemDiv.addEventListener('click', (e) => {
@@ -611,7 +611,7 @@ function renderFileTree(treeData, container) {
                     li.classList.toggle('collapsed');
                 });
             }
-
+            
             li.appendChild(itemDiv);
 
             if (item.children && item.children.length > 0) {
@@ -619,7 +619,7 @@ function renderFileTree(treeData, container) {
                 createTreeHtml(item.children, childrenUl);
                 li.appendChild(childrenUl);
             }
-
+            
             parentElement.appendChild(li);
         });
     }
@@ -705,14 +705,14 @@ function simpleMarkdownToHtml(markdown) {
 }
 
 // --- Gemini API Functions ---
-// async function callGeminiAPI(prompt) {
-//     const apiKey = "AIzaSyBxmOGijJhY9gfVfaBexWBV_MZEfnH9Kzw";
-
 async function callGeminiAPI(prompt) {
-    const apiKey = ""; // <-- Make sure this is empty again!
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+    const apiUrl = 'https://visualizer-backend.onrender.com/api/gemini'; // Your Render backend URL
 
-    const payload = { contents: [{ parts: [{ text: prompt }] }] };
+    const payload = {
+        contents: [{
+            parts: [{ text: prompt }]
+        }]
+    };
 
     const response = await fetch(apiUrl, {
         method: 'POST',
@@ -720,7 +720,11 @@ async function callGeminiAPI(prompt) {
         body: JSON.stringify(payload)
     });
 
-    if (!response.ok) throw new Error(`Gemini API request failed with status ${response.status}`);
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || `API request failed with status ${response.status}`);
+    }
+
     const result = await response.json();
     if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
         return result.candidates[0].content.parts[0].text;
@@ -811,19 +815,19 @@ function handleExport() {
         errorModalText.textContent = 'No graph to export.';
         return;
     }
-
+    
     svgElement.style.backgroundColor = '#111827';
 
     const svgData = new XMLSerializer().serializeToString(svgElement);
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-
+    
     const scale = 2;
     const scaledWidth = svgElement.clientWidth * scale;
     const scaledHeight = svgElement.clientHeight * scale;
     canvas.width = scaledWidth;
     canvas.height = scaledHeight;
-
+    
     const img = new Image();
     img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
 
