@@ -6,14 +6,9 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // --- CORS Configuration ---
-// This is the crucial part. We are explicitly telling the server
-// to allow requests only from your live frontend application.
-const corsOptions = {
-    origin: 'https://git-repo-dependency-visualizer.onrender.com',
-    optionsSuccessStatus: 200 // For legacy browser support
-};
-
-app.use(cors(corsOptions));
+// For debugging, we are now allowing requests from ANY origin.
+// This is less secure but will help us confirm the issue is CORS-related.
+app.use(cors());
 app.use(express.json());
 
 app.post('/api/gemini', async (req, res) => {
@@ -51,3 +46,4 @@ app.post('/api/gemini', async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
+// --- END CORS Configuration ---
