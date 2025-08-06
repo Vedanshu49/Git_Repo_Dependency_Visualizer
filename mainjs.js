@@ -705,13 +705,10 @@ function simpleMarkdownToHtml(markdown) {
 }
 
 // --- Gemini API Functions ---
-// async function callGeminiAPI(prompt) {
-//     const apiKey = ""; // Leave empty, handled by environment
-//     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-
 async function callGeminiAPI(prompt) {
-    const apiKey = "AIzaSy...YOUR_NEW_UNRESTRICTED_KEY"; // Paste your new key here
+    const apiKey = ""; // Leave empty, handled by environment
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
     const payload = { contents: [{ parts: [{ text: prompt }] }] };
 
     const response = await fetch(apiUrl, {
@@ -760,7 +757,12 @@ async function handleExplainFile(filePath) {
 
     try {
         const contentResponse = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/contents/${filePath}`);
-        const fileContent = atob(contentResponse.content);
+        let fileContent;
+        try {
+            fileContent = atob(contentResponse.content);
+        } catch (e) {
+            throw new Error("Could not decode file content. It may be a binary file or have an unsupported encoding.");
+        }
         const prompt = `Explain what this code does in simple terms. Format the response using Markdown. Focus on its primary purpose and how it might interact with other files. Here is the code for the file "${filePath}":\n\n\`\`\`\n${fileContent}\n\`\`\``;
         const explanation = await callGeminiAPI(prompt);
         aiModalResult.innerHTML = simpleMarkdownToHtml(explanation);
@@ -782,7 +784,12 @@ async function handleRefineFile(filePath) {
 
     try {
         const contentResponse = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/contents/${filePath}`);
-        const fileContent = atob(contentResponse.content);
+        let fileContent;
+        try {
+            fileContent = atob(contentResponse.content);
+        } catch (e) {
+            throw new Error("Could not decode file content. It may be a binary file or have an unsupported encoding.");
+        }
         const prompt = `Act as a senior software engineer performing a code review. Analyze the following code from the file "${filePath}". Provide actionable suggestions for refinement. Focus on improving readability, efficiency, and adherence to best practices. Do not rewrite the entire file, but instead, identify specific code blocks and explain how they could be improved. Format the response using Markdown. \n\n\`\`\`\n${fileContent}\n\`\`\``;
         const refinement = await callGeminiAPI(prompt);
         aiModalResult.innerHTML = simpleMarkdownToHtml(refinement);
