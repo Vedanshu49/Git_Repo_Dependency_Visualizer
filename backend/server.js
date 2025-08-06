@@ -5,8 +5,15 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Use CORS to allow requests from your frontend
-app.use(cors());
+// --- CORS Configuration ---
+// This is the crucial part. We are explicitly telling the server
+// to allow requests only from your live frontend application.
+const corsOptions = {
+    origin: 'https://git-repo-dependency-visualizer.onrender.com',
+    optionsSuccessStatus: 200 // For legacy browser support
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 app.post('/api/gemini', async (req, res) => {
