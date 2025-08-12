@@ -3,11 +3,8 @@ const fetch = require('node-fetch');
 const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
 
-// --- CORS Configuration ---
-// For debugging, we are now allowing requests from ANY origin.
-// This is less secure but will help us confirm the issue is CORS-related.
+// Set up CORS and JSON parsing
 app.use(cors());
 app.use(express.json());
 
@@ -18,7 +15,8 @@ app.post('/api/gemini', async (req, res) => {
         return res.status(500).json({ error: 'API key not configured on the server.' });
     }
 
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiApiKey}`;
+    // Note the updated Gemini API model name for better performance
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`;
 
     try {
         const geminiResponse = await fetch(apiUrl, {
@@ -43,7 +41,5 @@ app.post('/api/gemini', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
-// --- END CORS Configuration ---
+// Export the app instance for Vercel
+module.exports = app;

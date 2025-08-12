@@ -707,7 +707,8 @@ function simpleMarkdownToHtml(markdown) {
 // --- Gemini API Functions ---
 async function callGeminiAPI(prompt) {
     // *** THIS IS THE IMPORTANT CHANGE ***
-    const apiUrl = 'https://visualizer-backend-rtl7.onrender.com/api/gemini';
+    // *** THIS IS THE IMPORTANT CHANGE ***
+    const apiUrl = '/api/gemini';
 
     const payload = {
         contents: [{
