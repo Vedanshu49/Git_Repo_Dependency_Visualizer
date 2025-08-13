@@ -1,4 +1,4 @@
-// --- DOM Elements ---
+// --- ORIGINAL APPLICATION LOGIC ---
 const repoUrlInput = document.getElementById('repoUrl');
 const analyzeBtn = document.getElementById('analyzeBtn');
 const githubTokenInput = document.getElementById('githubToken');
@@ -74,6 +74,7 @@ forgetTokenBtn.addEventListener('click', forgetToken);
 
 // --- Modal Functions ---
 function openModal(modal) {
+    if (!modal) return;
     const content = modal.querySelector('.modal-content');
     modal.classList.remove('hidden');
     setTimeout(() => {
@@ -83,6 +84,7 @@ function openModal(modal) {
 }
 
 function closeModal(modal) {
+    if (!modal) return;
     const content = modal.querySelector('.modal-content');
     modal.classList.remove('opacity-100');
     content.style.transform = 'scale(0.95) translateY(1rem)';
@@ -92,8 +94,10 @@ function closeModal(modal) {
 }
 
 [tokenModal, errorModal, aiModal, fileTreeModal].forEach(modal => {
-    const content = modal.querySelector('.modal-content');
-    content.style.transform = 'scale(0.95) translateY(1rem)';
+    if (modal) {
+        const content = modal.querySelector('.modal-content');
+        if (content) content.style.transform = 'scale(0.95) translateY(1rem)';
+    }
 });
 
 
@@ -269,7 +273,7 @@ function displayRepoInfo(repoInfo, commitsData) {
     `;
 
     repoOverviewContainer.innerHTML = `
-        <button id="generateRepoOverviewBtn" class="w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center shadow-lg">
+        <button id="generateRepoOverviewBtn" class="glare-hover w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center shadow-lg">
             Generate Repo Overview
         </button>
     `;
@@ -544,10 +548,10 @@ function updateDetailsPanel(nodeId) {
             <ul class="text-sm space-y-1">${createList(nodeDependents)}</ul>
         </div>
         <div id="fileExplanationContainer" class="mt-6 space-y-2">
-            <button id="explainFileBtn" class="w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center shadow-lg">
+            <button id="explainFileBtn" class="glare-hover w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center shadow-lg">
                 Explain this file
             </button>
-            <button id="refineFileBtn" class="w-full bg-purple-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-purple-700 transition duration-300 flex items-center justify-center shadow-lg">
+            <button id="refineFileBtn" class="glare-hover w-full bg-purple-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-purple-700 transition duration-300 flex items-center justify-center shadow-lg">
                 Suggest Refinements
             </button>
         </div>
@@ -586,6 +590,7 @@ function buildFileTreeData(files) {
 }
 
 function renderFileTree(treeData, container) {
+    if (!container) return;
     container.innerHTML = '';
     const rootUl = document.createElement('ul');
     rootUl.className = 'file-tree';
@@ -706,8 +711,6 @@ function simpleMarkdownToHtml(markdown) {
 
 // --- Gemini API Functions ---
 async function callGeminiAPI(prompt) {
-    // *** THIS IS THE IMPORTANT CHANGE ***
-    // *** THIS IS THE IMPORTANT CHANGE ***
     const apiUrl = '/api/gemini';
 
     const payload = {
@@ -877,3 +880,116 @@ function forgetToken() {
 
 // Load token on initial page load
 document.addEventListener('DOMContentLoaded', loadToken);
+
+
+// =================================================================
+// --- ALL NEW EFFECTS INITIALIZATION ---
+// =================================================================
+
+document.addEventListener('DOMContentLoaded', () => {
+
+    // --- 1. Fullscreen Click Spark Effect ---
+    const sparkCanvas = document.getElementById('spark-canvas');
+    if (sparkCanvas) {
+        const ctx = sparkCanvas.getContext('2d');
+        let sparks = [];
+        sparkCanvas.width = window.innerWidth;
+        sparkCanvas.height = window.innerHeight;
+        window.addEventListener('resize', () => {
+            sparkCanvas.width = window.innerWidth;
+            sparkCanvas.height = window.innerHeight;
+        });
+        const sparkConfig = {
+            sparkColor: "#facc15",
+            sparkSize: 8,
+            sparkRadius: 25,
+            sparkCount: 10,
+            duration: 500,
+            easing: (t) => t * (2 - t),
+        };
+
+        function drawSparks() {
+            if (!ctx) return;
+            ctx.clearRect(0, 0, sparkCanvas.width, sparkCanvas.height);
+            sparks = sparks.filter(spark => {
+                const elapsed = performance.now() - spark.startTime;
+                if (elapsed >= sparkConfig.duration) return false;
+                const progress = elapsed / sparkConfig.duration;
+                const eased = sparkConfig.easing(progress);
+                const distance = eased * sparkConfig.sparkRadius;
+                const lineLength = sparkConfig.sparkSize * (1 - eased);
+                const x1 = spark.x + distance * Math.cos(spark.angle);
+                const y1 = spark.y + distance * Math.sin(spark.angle);
+                const x2 = spark.x + (distance + lineLength) * Math.cos(spark.angle);
+                const y2 = spark.y + (distance + lineLength) * Math.sin(spark.angle);
+                ctx.strokeStyle = sparkConfig.sparkColor;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+                return true;
+            });
+            requestAnimationFrame(drawSparks);
+        }
+        document.addEventListener('click', (e) => {
+            const x = e.clientX;
+            const y = e.clientY;
+            const now = performance.now();
+            const newSparks = Array.from({
+                length: sparkConfig.sparkCount
+            }, (_, i) => ({
+                x,
+                y,
+                angle: (2 * Math.PI * i) / sparkConfig.sparkCount,
+                startTime: now,
+            }));
+            sparks.push(...newSparks);
+        });
+        drawSparks();
+    }
+
+    // --- 2. GSAP SplitText Animation for Header ---
+    if (typeof gsap !== 'undefined' && typeof SplitText !== 'undefined') {
+        gsap.registerPlugin(SplitText);
+        const mainTitle = document.getElementById('main-title');
+        const subtitle = document.getElementById('subtitle');
+        if (mainTitle && subtitle) {
+            const mainTitleChars = new SplitText(mainTitle, {
+                type: "chars"
+            }).chars;
+            const subtitleChars = new SplitText(subtitle, {
+                type: "chars"
+            }).chars;
+
+            gsap.from(mainTitleChars, {
+                duration: 0.8,
+                opacity: 0,
+                y: 50,
+                ease: "power3.out",
+                stagger: 0.05,
+            });
+            gsap.from(subtitleChars, {
+                duration: 0.6,
+                opacity: 0,
+                y: 20,
+                ease: "power2.out",
+                stagger: 0.03,
+                delay: 0.5,
+            });
+        }
+    }
+
+    // --- 3. Aceternity UI Interactive Pointer ---
+    // const pointer = document.querySelector('.interactive-pointer');
+    // if (pointer) {
+    //     document.body.addEventListener('pointermove', (e) => {
+    //         const { clientX, clientY } = e;
+    //         pointer.style.opacity = '1';
+    //         pointer.style.transform = `translate(${clientX}px, ${clientY}px) translate(-50%, -50%)`;
+    //     });
+    //     document.body.addEventListener('pointerleave', () => {
+    //         pointer.style.opacity = '0';
+    //     });
+    // }
+});

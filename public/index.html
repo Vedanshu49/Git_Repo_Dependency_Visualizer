@@ -12,17 +12,20 @@
 </head>
 
 <body class="text-gray-200">
-    <!-- Background Gradient -->
-    <div class="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-gray-900 via-gray-900 to-blue-900/50 -z-10">
+    <div class="animated-background-container">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+        <div class="blob blob-4"></div>
     </div>
+    <canvas id="spark-canvas"></canvas>
 
-    <div class="container mx-auto p-4 md:p-8">
+    <div class="container mx-auto p-4 md-p-8">
         <header class="text-center mb-10">
-            <h1 class="text-4xl md:text-5xl font-bold text-white">Git Dependency Visualizer</h1>
-            <p class="text-gray-400 mt-3 text-lg">A PROJECT BY VEDANSHU PANDEY</p>
+            <h1 id="main-title" class="text-4xl md:text-5xl font-bold text-white">Git Dependency Visualizer</h1>
+            <p id="subtitle" class="text-gray-400 mt-3 text-lg">A PROJECT BY VEDANSHU PANDEY</p>
         </header>
 
-        <!-- Input Section -->
         <div class="max-w-3xl mx-auto p-6 rounded-2xl shadow-2xl glass-panel mb-10">
             <div class="space-y-4">
                 <div class="flex flex-col sm:flex-row gap-4">
@@ -30,7 +33,7 @@
                         class="flex-grow p-4 bg-gray-800/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition text-white placeholder-gray-400"
                         placeholder="Enter a public GitHub repository URL">
                     <button id="analyzeBtn"
-                        class="bg-blue-600 text-white font-semibold py-4 px-8 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-blue-500 transition duration-300 flex items-center justify-center shadow-lg hover:shadow-blue-500/50">
+                        class="glare-hover bg-blue-600 text-white font-semibold py-4 px-8 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-blue-500 transition duration-300 flex items-center justify-center shadow-lg hover:shadow-blue-500/50">
                         <svg id="analyzeIcon" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -45,41 +48,36 @@
                             class="w-full p-4 bg-gray-800/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition text-white placeholder-gray-400"
                             placeholder="GitHub Personal Access Token (Optional, for higher rate limits)">
                         <button id="forgetTokenBtn"
-                            class="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-gray-400 hover:text-white hidden transition">Forget</button>
+                            class="glare-hover absolute right-4 top-1/2 -translate-y-1/2 text-sm text-gray-400 hover:text-white hidden transition">Forget</button>
                     </div>
                     <button id="howToTokenBtn"
-                        class="text-sm text-blue-400 hover:text-blue-300 hover:underline mt-3 transition">How do I get a
+                        class="glare-hover text-sm text-blue-400 hover:text-blue-300 hover:underline mt-3 transition">How
+                        do I get a
                         token?</button>
                 </div>
             </div>
         </div>
 
-        <!-- Main Content Area -->
         <main id="mainContent" class="mt-8 hidden">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <!-- Left Column -->
                 <div class="space-y-8">
-                    <!-- Repository Insights -->
                     <div id="repoInsights" class="p-6 rounded-2xl shadow-2xl glass-panel">
                         <h2 class="text-2xl font-bold mb-4 text-white">Repository Insights</h2>
                         <div id="repoDetails" class="space-y-4"></div>
                         <div id="repoOverviewContainer" class="mt-4"></div>
                     </div>
 
-                    <!-- File Structure -->
                     <div id="fileStructurePanel" class="p-6 rounded-2xl shadow-2xl glass-panel">
                         <div class="flex justify-between items-center mb-4">
                             <h2 class="text-2xl font-bold text-white">File Structure</h2>
                             <button id="viewMoreTreeBtn"
-                                class="text-sm text-blue-400 hover:text-blue-300 hover:underline transition">View
+                                class="glare-hover text-sm text-blue-400 hover:text-blue-300 hover:underline transition">View
                                 More</button>
                         </div>
                         <div id="fileTreeContainer" class="file-tree-preview">
-                            <!-- File tree preview will be injected here -->
                         </div>
                     </div>
 
-                    <!-- File Details -->
                     <div id="detailsPanel" class="p-6 rounded-2xl shadow-2xl glass-panel">
                         <h2 class="text-2xl font-bold mb-4 text-white">File Details</h2>
                         <div id="detailsContent" class="text-gray-300 h-full">
@@ -88,7 +86,6 @@
                     </div>
                 </div>
 
-                <!-- Graph Visualization -->
                 <div class="lg:col-span-2 p-4 rounded-2xl shadow-2xl glass-panel relative flex flex-col">
                     <div class="flex-shrink-0">
                         <div class="flex flex-wrap justify-between items-center mb-4 px-2 gap-4">
@@ -121,18 +118,16 @@
                                 <option value="all">All File Types</option>
                             </select>
                             <button id="exportBtn"
-                                class="bg-gray-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-700 transition">Export
+                                class="glare-hover bg-gray-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-700 transition">Export
                                 as PNG</button>
                         </div>
                     </div>
                     <div id="graphContainer" class="bg-gray-900/30 flex-grow" style="min-height: 600px;">
-                        <!-- D3 SVG will be injected here -->
                     </div>
                 </div>
             </div>
         </main>
 
-        <!-- Loading/Message Overlay -->
         <div id="messageOverlay"
             class="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center hidden z-50">
             <div class="text-center">
@@ -141,7 +136,6 @@
             </div>
         </div>
 
-        <!-- How-To Token Modal -->
         <div id="tokenModal"
             class="modal-overlay fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50 opacity-0">
             <div class="modal-content glass-panel w-full max-w-2xl rounded-2xl shadow-2xl p-8 transform flex flex-col">
@@ -206,13 +200,12 @@
                 </div>
                 <div class="text-right mt-8 flex-shrink-0">
                     <button id="gotItBtn"
-                        class="bg-blue-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-blue-700 transition">Got
+                        class="glare-hover bg-blue-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-blue-700 transition">Got
                         it</button>
                 </div>
             </div>
         </div>
 
-        <!-- Error Modal -->
         <div id="errorModal"
             class="modal-overlay fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50 opacity-0">
             <div class="modal-content glass-panel w-full max-w-md rounded-2xl shadow-2xl p-8 transform text-center">
@@ -226,11 +219,10 @@
                 <h3 class="text-xl font-bold text-white mb-2">An Error Occurred</h3>
                 <p id="errorModalText" class="text-gray-300"></p>
                 <button id="closeErrorModalBtn"
-                    class="mt-6 bg-red-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-red-700 transition">Close</button>
+                    class="glare-hover mt-6 bg-red-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-red-700 transition">Close</button>
             </div>
         </div>
 
-        <!-- Generic AI Modal -->
         <div id="aiModal"
             class="modal-overlay fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50 opacity-0">
             <div class="modal-content glass-panel w-full max-w-3xl rounded-2xl shadow-2xl p-8 transform flex flex-col">
@@ -240,16 +232,14 @@
                         class="text-gray-400 hover:text-white text-4xl transition">&times;</button>
                 </div>
                 <div id="aiModalResult" class="modal-body pr-4 -mr-4 gemini-response">
-                    <!-- Gemini response will be injected here -->
                 </div>
                 <div class="text-right mt-8 flex-shrink-0">
                     <button id="gotItAiModalBtn"
-                        class="bg-blue-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-blue-700 transition">Close</button>
+                        class="glare-hover bg-blue-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-blue-700 transition">Close</button>
                 </div>
             </div>
         </div>
 
-        <!-- File Tree Modal -->
         <div id="fileTreeModal"
             class="modal-overlay fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50 opacity-0">
             <div class="modal-content glass-panel w-full max-w-2xl rounded-2xl shadow-2xl p-8 transform flex flex-col">
@@ -269,16 +259,19 @@
                     </svg>
                 </div>
                 <div id="fullFileTreeContainer" class="modal-body pr-4 -mr-4">
-                    <!-- Full file tree will be injected here -->
                 </div>
                 <div class="text-right mt-8 flex-shrink-0">
                     <button id="gotItFileTreeModalBtn"
-                        class="bg-blue-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-blue-700 transition">Close</button>
+                        class="glare-hover bg-blue-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-blue-700 transition">Close</button>
                 </div>
             </div>
         </div>
 
     </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/SplitText.min.js"></script>
 
     <script src="mainjs.js"></script>
 </body>
