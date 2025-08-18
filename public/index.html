@@ -60,35 +60,38 @@
         </div>
 
         <main id="mainContent" class="mt-8 hidden">
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div class="space-y-8">
-                    <div id="repoInsights" class="p-6 rounded-2xl shadow-2xl glass-panel">
-                        <h2 class="text-2xl font-bold mb-4 text-white">Repository Insights</h2>
-                        <div id="repoDetails" class="space-y-4"></div>
-                        <div id="repoOverviewContainer" class="mt-4"></div>
-                        <div id="dependencyHealthContainer" class="mt-4"></div>
-                    </div>
+            <div class="flex flex-col gap-8">
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     
-                    <div id="techStackPanel" class="p-6 rounded-2xl shadow-2xl glass-panel">
-                        <h2 class="text-2xl font-bold mb-4 text-white">Tech Stack</h2>
-                        <div id="techStackContent" class="flex flex-wrap gap-4"></div>
-                    </div>
+                    <div class="flex flex-col gap-8">
+                        <div id="repoInsights" class="p-6 rounded-2xl shadow-2xl glass-panel">
+                            <h2 class="text-2xl font-bold mb-4 text-white">Repository Insights</h2>
+                            <div id="repoDetails" class="space-y-4"></div>
+                            <div id="repoOverviewContainer" class="mt-4"></div>
+                            <div id="dependencyHealthContainer" class="mt-4"></div>
+                        </div>
 
-                    <div id="detailsPanel" class="p-6 rounded-2xl shadow-2xl glass-panel">
-                        <h2 class="text-2xl font-bold mb-4 text-white">File Details</h2>
-                        <div id="detailsContent" class="text-gray-300 h-full">
-                            <p class="mt-10 text-center text-gray-400">Click a file to see its details.</p>
+                        <div id="techStackPanel" class="p-6 rounded-2xl shadow-2xl glass-panel">
+                            <h2 class="text-2xl font-bold mb-4 text-white">Tech Stack</h2>
+                            <div id="techStackContent" class="flex flex-wrap gap-4"></div>
                         </div>
                     </div>
 
-                    <div id="fileStructurePanel" class="p-6 rounded-2xl shadow-2xl glass-panel">
-                        <div class="flex justify-between items-center mb-4">
-                            <h2 class="text-2xl font-bold text-white">File Structure</h2>
-                            <button id="viewMoreTreeBtn"
-                                class="glare-hover text-sm text-blue-400 hover:text-blue-300 hover:underline transition">View
-                                More</button>
+                    <div class="flex flex-col gap-8">
+                        <div id="fileStructurePanel" class="p-6 rounded-2xl shadow-2xl glass-panel">
+                            <div class="flex justify-between items-center mb-4">
+                                <h2 class="text-2xl font-bold text-white">File Structure</h2>
+                                <button id="viewMoreTreeBtn" class="glare-hover text-sm text-blue-400 hover:text-blue-300 hover:underline transition">View More</button>
+                            </div>
+                            <div id="fileTreeContainer" class="file-tree-preview"></div>
                         </div>
-                        <div id="fileTreeContainer" class="file-tree-preview">
+
+                        <div id="detailsPanel" class="p-6 rounded-2xl shadow-2xl glass-panel flex-grow">
+                            <h2 class="text-2xl font-bold mb-4 text-white">File Details</h2>
+                            <div id="detailsContent" class="text-gray-300 h-full">
+                                <p class="mt-10 text-center text-gray-400">Click a file to see its details.</p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -98,41 +101,28 @@
                         <div class="flex flex-wrap justify-between items-center mb-4 px-2 gap-4">
                             <div class="flex items-center gap-4">
                                 <h2 class="text-2xl font-bold text-white">Dependency Graph</h2>
-                                <select id="layoutSwitcher"
-                                    class="bg-gray-800/50 border border-gray-600 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
+                                <select id="layoutSwitcher" class="bg-gray-800/50 border border-gray-600 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
                                     <option value="force">Force-Directed</option>
                                     <option value="hierarchical">Hierarchical</option>
                                     <option value="circular">Circular</option>
                                 </select>
                             </div>
                             <div id="legend" class="flex items-center space-x-4 text-sm text-gray-300">
-                                <div class="flex items-center"><span
-                                        class="h-3 w-3 rounded-full bg-blue-400 border-2 border-blue-300 mr-2"></span>Selected
-                                </div>
-                                <div class="flex items-center"><span
-                                        class="h-3 w-3 rounded-full bg-teal-400 border-2 border-teal-300 mr-2"></span>Dependency
-                                </div>
-                                <div class="flex items-center"><span
-                                        class="h-3 w-3 rounded-full bg-pink-400 border-2 border-pink-300 mr-2"></span>Dependent
-                                </div>
+                                <div class="flex items-center"><span class="h-3 w-3 rounded-full bg-blue-400 border-2 border-blue-300 mr-2"></span>Selected</div>
+                                <div class="flex items-center"><span class="h-3 w-3 rounded-full bg-teal-400 border-2 border-teal-300 mr-2"></span>Dependency</div>
+                                <div class="flex items-center"><span class="h-3 w-3 rounded-full bg-pink-400 border-2 border-pink-300 mr-2"></span>Dependent</div>
                             </div>
                         </div>
                         <div class="flex flex-col sm:flex-row gap-4 mb-4 px-2">
                             <div class="relative flex-grow">
-                                <input type="text" id="searchInput"
-                                    class="w-full p-3 bg-gray-800/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition text-white placeholder-gray-400 pl-10"
-                                    placeholder="Search for a file...">
-                                <svg class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none"
-                                    viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                <input type="text" id="searchInput" class="w-full p-3 bg-gray-800/50 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition text-white placeholder-gray-400 pl-10" placeholder="Search for a file...">
+                                <svg class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
                                 </svg>
                             </div>
-                            <button id="exportBtn"
-                                class="glare-hover bg-gray-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-700 transition">Export
-                                as PNG</button>
+                            <button id="exportBtn" class="glare-hover bg-gray-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-700 transition">Export as PNG</button>
                         </div>
-                         <div id="graphFilters" class="p-4 rounded-2xl shadow-inner bg-gray-900/30 mb-4">
+                        <div id="graphFilters" class="p-4 rounded-2xl shadow-inner bg-gray-900/30 mb-4">
                             <h3 class="text-lg font-bold text-white mb-2">Graph Filters</h3>
                             <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
                                 <label class="flex items-center space-x-2 cursor-pointer">
