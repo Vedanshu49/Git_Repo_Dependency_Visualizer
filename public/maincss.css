@@ -5,13 +5,6 @@ body {
     overflow-x: hidden;
 }
 
-/* .glass-panel {
-    background: rgba(31, 41, 55, 0.5);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-} */
-
 .graph-container {
     position: relative;
     width: 100%;
@@ -274,73 +267,6 @@ body {
   z-index: 9999;
 }
 
-/* --- Reliable Animated Background --- */
-/* .animated-background {
-    position: fixed;
-    width: 100vw;
-    height: 100vh;
-    top: 0;
-    left: 0;
-    overflow: hidden;
-    z-index: -1;
-} */
-
-.animated-background::before,
-.animated-background::after {
-    content: '';
-    position: absolute;
-    width: 500px;
-    height: 500px;
-    background: radial-gradient(circle farthest-side, rgba(255, 0, 182, 0.15), rgba(255, 255, 255, 0));
-    border-radius: 9999px;
-}
-
-.animated-background::before {
-    bottom: -10%;
-    left: -20%;
-    animation: moveVertical 30s ease infinite;
-}
-
-.animated-background::after {
-    top: -10%;
-    right: -20%;
-    animation: moveHorizontal 40s ease infinite;
-}
-
-@keyframes moveHorizontal {
-  0% { transform: translateX(-50%) translateY(-10%); }
-  50% { transform: translateX(50%) translateY(10%); }
-  100% { transform: translateX(-50%) translateY(-10%); }
-}
-
-@keyframes moveVertical {
-  0% { transform: translateY(-50%); }
-  50% { transform: translateY(50%); }
-  100% { transform: translateY(-50%); }
-}
-
-
-/* --- Fix for Layering and New Panel Style --- */
-
-/* This is the new style for your panels */
-.glass-panel {
-    background-color: rgba(31, 41, 55, 0.5);
-    /* Semi-transparent dark blue */
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-}
-
-/* This targets the main container holding all your content */
-.container {
-    position: relative;
-    /* This is the key change */
-    z-index: 1;
-    /* Puts all content above the background */
-}
-
-
-/* --- Final Animated Background (Responsive) --- */
 .animated-background-container {
     position: fixed;
     width: 100vw;
@@ -354,19 +280,14 @@ body {
 .blob {
     position: absolute;
     width: 70vw;
-    /* CHANGE: Use viewport width */
     height: 70vw;
-    /* CHANGE: Use viewport width */
     min-width: 500px;
-    /* ADDED: Ensures they aren't too small on narrow screens */
     min-height: 500px;
-    /* ADDED: Ensures they aren't too small on narrow screens */
     background: radial-gradient(circle farthest-side, rgba(255, 0, 182, 0.15), rgba(255, 255, 255, 0));
     border-radius: 9999px;
     filter: blur(80px);
 }
 
-/* --- Blob Positions and Animations --- */
 .blob-1 {
     top: -30%;
     left: -30%;
@@ -391,8 +312,6 @@ body {
     animation: moveInCircle 20s reverse infinite;
 }
 
-
-/* --- Keyframes --- */
 @keyframes moveHorizontal {
     0% {
         transform: translateX(-50%) translateY(-10%);
@@ -433,4 +352,17 @@ body {
     100% {
         transform: rotate(360deg);
     }
+}
+
+/* --- Heatmap Legend --- */
+#heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+#heatmap-legend .color-box {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
 }

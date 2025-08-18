@@ -29,7 +29,7 @@ const gotItFileTreeModalBtn = document.getElementById('gotItFileTreeModalBtn');
 const viewMoreTreeBtn = document.getElementById('viewMoreTreeBtn');
 const fileTreeSearchInput = document.getElementById('fileTreeSearchInput');
 const forgetTokenBtn = document.getElementById('forgetTokenBtn');
-let searchInput, fileTypeFilter, exportBtn;
+let searchInput, fileTypeFilter, exportBtn, layoutSwitcher;
 
 // --- State ---
 let currentOwner, currentRepo;
@@ -38,6 +38,7 @@ let dependencies = [];
 let nodes = [], edges = [];
 let selectedNodeId = null;
 let simulation;
+let currentLayout = 'force'; // 'force', 'hierarchical', 'circular'
 
 // --- Event Listeners ---
 analyzeBtn.addEventListener('click', handleAnalyzeClick);
@@ -70,7 +71,6 @@ fileTreeSearchInput.addEventListener('input', () => {
     filterFileTree(fullFileTreeContainer, query);
 });
 forgetTokenBtn.addEventListener('click', forgetToken);
-
 
 // --- Modal Functions ---
 function openModal(modal) {
@@ -150,8 +150,27 @@ async function handleAnalyzeClick() {
         showMessage(`Found ${repoFiles.length} files. Analyzing dependencies...`, false);
         dependencies = await analyzeFileDependencies(currentOwner, currentRepo);
 
-        const nodeData = repoFiles.map(file => ({ id: file.path, label: file.path.split('/').pop(), fullPath: file.path }));
+        const nodeData = repoFiles.map(file => ({
+            id: file.path,
+            label: file.path.split('/').pop(),
+            fullPath: file.path,
+            size: file.size // Store file size
+        }));
+
+        // Calculate in-degree for heatmap
+        const inDegrees = {};
+        dependencies.forEach(dep => {
+            inDegrees[dep.to] = (inDegrees[dep.to] || 0) + 1;
+        });
+        nodeData.forEach(node => {
+            node.inDegree = inDegrees[node.id] || 0;
+        });
+
+
         const edgeData = dependencies.map(dep => ({ source: dep.from, target: dep.to }));
+
+        nodes = nodeData;
+        edges = edgeData;
 
         mainContent.classList.remove('hidden');
         initializeGraphControls();
@@ -160,9 +179,10 @@ async function handleAnalyzeClick() {
         const fileTreeData = buildFileTreeData(repoFiles);
         renderFileTree(fileTreeData, fileTreeContainer); // Render preview
         renderFileTree(fileTreeData, fullFileTreeContainer); // Render full tree in modal
-        renderGraph(nodeData, edgeData);
+        renderGraph(nodes, edges);
         updateDetailsPanel(null);
         populateFileTypeFilter();
+        renderHeatmapLegend();
 
     } catch (error) {
         console.error('Error analyzing repository:', error);
@@ -179,10 +199,15 @@ function initializeGraphControls() {
     searchInput = document.getElementById('searchInput');
     fileTypeFilter = document.getElementById('fileTypeFilter');
     exportBtn = document.getElementById('exportBtn');
+    layoutSwitcher = document.getElementById('layoutSwitcher');
 
     searchInput.addEventListener('input', handleSearch);
     fileTypeFilter.addEventListener('change', handleFilter);
     exportBtn.addEventListener('click', handleExport);
+    layoutSwitcher.addEventListener('change', (e) => {
+        currentLayout = e.target.value;
+        renderGraph(nodes, edges);
+    });
 }
 
 function handleSearch() {
@@ -341,8 +366,6 @@ function resolvePath(basePath, relativePath) {
 
 // --- D3 Visualization ---
 function renderGraph(nodeData, edgeData) {
-    nodes = nodeData;
-    edges = edgeData;
     graphContainer.innerHTML = '';
     const width = graphContainer.clientWidth;
     const height = graphContainer.clientHeight;
@@ -367,13 +390,6 @@ function renderGraph(nodeData, edgeData) {
         .attr("d", "M0,-5L10,0L0,5")
         .attr("fill", "#6b7280");
 
-    simulation = d3.forceSimulation(nodes)
-        .force("link", d3.forceLink(edgeData).id(d => d.id).distance(120))
-        .force("charge", d3.forceManyBody().strength(-350))
-        .force("center", d3.forceCenter(0, 0))
-        .force("x", d3.forceX())
-        .force("y", d3.forceY());
-
     const link = g.append("g")
         .selectAll("line")
         .data(edgeData)
@@ -386,28 +402,24 @@ function renderGraph(nodeData, edgeData) {
 
     const node = g.append("g")
         .selectAll("g")
-        .data(nodes)
+        .data(nodeData)
         .join("g")
         .attr("class", "node")
         .style("opacity", 0)
-        .call(drag(simulation))
         .on("mouseover", function () {
             d3.select(this).raise();
         });
 
-    const nodeDegrees = {};
-    edgeData.forEach(d => {
-        nodeDegrees[d.source.id] = (nodeDegrees[d.source.id] || 0) + 1;
-        nodeDegrees[d.target.id] = (nodeDegrees[d.target.id] || 0) + 1;
-    });
+    const maxInDegree = d3.max(nodeData, d => d.inDegree) || 1;
+    const colorScale = d3.scaleSequential(d3.interpolateYlOrRd).domain([0, maxInDegree]);
 
     node.append("circle")
-        .attr("r", d => 6 + Math.sqrt(nodeDegrees[d.id] || 1) * 2.5)
-        .attr("fill", "#1f2937")
+        .attr("r", d => 6 + Math.sqrt(d.inDegree || 1) * 2.5)
+        .attr("fill", d => colorScale(d.inDegree))
         .attr("stroke", "#4b5563");
 
     node.append("text")
-        .attr("y", d => (15 + Math.sqrt(nodeDegrees[d.id] || 1) * 2.5) * -1)
+        .attr("y", d => (15 + Math.sqrt(d.inDegree || 1) * 2.5) * -1)
         .attr("class", "node-label")
         .text(d => d.label);
 
@@ -428,15 +440,13 @@ function renderGraph(nodeData, edgeData) {
         .ease(d3.easeCubicOut)
         .style("opacity", 0.5);
 
-    simulation.on("tick", () => {
-        link
-            .attr("x1", d => d.source.x)
-            .attr("y1", d => d.source.y)
-            .attr("x2", d => d.target.x)
-            .attr("y2", d => d.target.y);
-        node
-            .attr("transform", d => `translate(${d.x}, ${d.y})`);
-    });
+    if (currentLayout === 'force') {
+        applyForceLayout(nodeData, edgeData, node, link, width, height);
+    } else if (currentLayout === 'hierarchical') {
+        applyHierarchicalLayout(nodeData, edgeData, node, link, width, height);
+    } else if (currentLayout === 'circular') {
+        applyCircularLayout(nodeData, edgeData, node, link, width, height);
+    }
 
     const zoom = d3.zoom().scaleExtent([0.1, 4]).on("zoom", (event) => {
         g.attr("transform", event.transform);
@@ -446,6 +456,82 @@ function renderGraph(nodeData, edgeData) {
         if (selectedNodeId) handleNodeClick(null);
     });
 }
+
+function applyForceLayout(nodeData, edgeData, node, link, width, height) {
+    simulation = d3.forceSimulation(nodeData)
+        .force("link", d3.forceLink(edgeData).id(d => d.id).distance(120))
+        .force("charge", d3.forceManyBody().strength(-350))
+        .force("center", d3.forceCenter(0, 0))
+        .force("x", d3.forceX())
+        .force("y", d3.forceY());
+
+    node.call(drag(simulation));
+
+    simulation.on("tick", () => {
+        link
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+        node
+            .attr("transform", d => `translate(${d.x}, ${d.y})`);
+    });
+}
+
+function applyHierarchicalLayout(nodeData, edgeData, node, link, width, height) {
+    const root = d3.stratify()
+        .id(d => d.id)
+        .parentId(d => {
+            const edge = edgeData.find(e => e.target.id === d.id);
+            return edge ? edge.source.id : null;
+        })
+        (nodeData);
+
+    const treeLayout = d3.tree().size([height, width - 200]);
+    treeLayout(root);
+
+    node.transition().duration(750)
+        .attr("transform", d => `translate(${d.y}, ${d.x})`);
+
+    link.transition().duration(750)
+        .attr("x1", d => d.source.y)
+        .attr("y1", d => d.source.x)
+        .attr("x2", d => d.target.y)
+        .attr("y2", d => d.target.x);
+}
+
+function applyCircularLayout(nodeData, edgeData, node, link, width, height) {
+    const radius = Math.min(width, height) / 2 - 80;
+    const angleStep = (2 * Math.PI) / nodeData.length;
+
+    nodeData.forEach((d, i) => {
+        d.x = radius * Math.cos(i * angleStep);
+        d.y = radius * Math.sin(i * angleStep);
+    });
+
+    node.transition().duration(750)
+        .attr("transform", d => `translate(${d.x}, ${d.y})`);
+
+    link.transition().duration(750)
+        .attr("x1", d => d.source.x)
+        .attr("y1", d => d.source.y)
+        .attr("x2", d => d.target.x)
+        .attr("y2", d => d.target.y);
+}
+
+function renderHeatmapLegend() {
+    const legendContainer = document.getElementById('heatmap-legend');
+    const maxInDegree = d3.max(nodes, d => d.inDegree) || 1;
+    const colorScale = d3.scaleSequential(d3.interpolateYlOrRd).domain([0, maxInDegree]);
+
+    legendContainer.innerHTML = '<span>Less Critical</span>';
+    for (let i = 0; i <= 1; i += 0.25) {
+        const color = colorScale(maxInDegree * i);
+        legendContainer.innerHTML += `<div class="color-box" style="background-color: ${color};"></div>`;
+    }
+    legendContainer.innerHTML += '<span>More Critical</span>';
+}
+
 
 function drag(simulation) {
     function dragstarted(event, d) {
@@ -519,7 +605,7 @@ function highlightNodes(nodeId) {
         });
 }
 
-function updateDetailsPanel(nodeId) {
+async function updateDetailsPanel(nodeId) {
     if (!nodeId) {
         detailsContent.innerHTML = '<p class="mt-10 text-center text-gray-400">Click a file to see its details.</p>';
         return;
@@ -537,6 +623,9 @@ function updateDetailsPanel(nodeId) {
 
     detailsContent.innerHTML = `
         <h3 class="text-lg font-semibold text-white break-words">${node.fullPath}</h3>
+        <div id="complexity-metrics" class="mt-4 text-sm text-gray-400">
+            <p>Loading metrics...</p>
+        </div>
         <div class="mt-6">
             <h4 class="font-semibold text-teal-400">Dependencies (${nodeDependencies.length})</h4>
             <p class="text-sm text-gray-400 mb-2">Files this file uses (click to select).</p>
@@ -558,7 +647,32 @@ function updateDetailsPanel(nodeId) {
     `;
     document.getElementById('explainFileBtn').addEventListener('click', () => handleExplainFile(nodeId));
     document.getElementById('refineFileBtn').addEventListener('click', () => handleRefineFile(nodeId));
+
+    // Fetch and display complexity metrics
+    displayComplexityMetrics(nodeId);
 }
+
+async function displayComplexityMetrics(nodeId) {
+    const metricsContainer = document.getElementById('complexity-metrics');
+    try {
+        const node = nodes.find(n => n.id === nodeId);
+        const contentResponse = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/contents/${nodeId}`);
+        const fileContent = atob(contentResponse.content);
+
+        const loc = fileContent.split('\n').length;
+        const functions = (fileContent.match(/function\s+\w+\s*\(|=>/g) || []).length;
+        const classes = (fileContent.match(/class\s+\w+/g) || []).length;
+
+        metricsContainer.innerHTML = `
+            <p><strong class="font-semibold text-gray-300">File Size:</strong> ${(node.size / 1024).toFixed(2)} KB</p>
+            <p><strong class="font-semibold text-gray-300">Lines of Code:</strong> ${loc}</p>
+            <p><strong class="font-semibold text-gray-300">Functions/Classes:</strong> ${functions} / ${classes}</p>
+        `;
+    } catch (error) {
+        metricsContainer.innerHTML = `<p class="text-red-400">Could not load complexity metrics.</p>`;
+    }
+}
+
 
 // --- File Tree Functions ---
 function buildFileTreeData(files) {
@@ -979,17 +1093,4 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
     }
-
-    // --- 3. Aceternity UI Interactive Pointer ---
-    // const pointer = document.querySelector('.interactive-pointer');
-    // if (pointer) {
-    //     document.body.addEventListener('pointermove', (e) => {
-    //         const { clientX, clientY } = e;
-    //         pointer.style.opacity = '1';
-    //         pointer.style.transform = `translate(${clientX}px, ${clientY}px) translate(-50%, -50%)`;
-    //     });
-    //     document.body.addEventListener('pointerleave', () => {
-    //         pointer.style.opacity = '0';
-    //     });
-    // }
 });
