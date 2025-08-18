@@ -66,6 +66,12 @@
                         <h2 class="text-2xl font-bold mb-4 text-white">Repository Insights</h2>
                         <div id="repoDetails" class="space-y-4"></div>
                         <div id="repoOverviewContainer" class="mt-4"></div>
+                        <div id="dependencyHealthContainer" class="mt-4"></div>
+                    </div>
+                    
+                    <div id="techStackPanel" class="p-6 rounded-2xl shadow-2xl glass-panel">
+                        <h2 class="text-2xl font-bold mb-4 text-white">Tech Stack</h2>
+                        <div id="techStackContent" class="flex flex-wrap gap-4"></div>
                     </div>
 
                     <div id="detailsPanel" class="p-6 rounded-2xl shadow-2xl glass-panel">
@@ -122,13 +128,26 @@
                                         d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
                                 </svg>
                             </div>
-                            <select id="fileTypeFilter"
-                                class="bg-gray-800/50 border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
-                                <option value="all">All File Types</option>
-                            </select>
                             <button id="exportBtn"
                                 class="glare-hover bg-gray-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-700 transition">Export
                                 as PNG</button>
+                        </div>
+                         <div id="graphFilters" class="p-4 rounded-2xl shadow-inner bg-gray-900/30 mb-4">
+                            <h3 class="text-lg font-bold text-white mb-2">Graph Filters</h3>
+                            <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                                <label class="flex items-center space-x-2 cursor-pointer">
+                                    <input type="checkbox" data-filter="tests" class="filter-checkbox">
+                                    <span>Hide Test Files</span>
+                                </label>
+                                <label class="flex items-center space-x-2 cursor-pointer">
+                                    <input type="checkbox" data-filter="styles" class="filter-checkbox">
+                                    <span>Hide Stylesheets</span>
+                                </label>
+                                <label class="flex items-center space-x-2 cursor-pointer">
+                                    <input type="checkbox" data-filter="json" class="filter-checkbox">
+                                    <span>Hide JSON</span>
+                                </label>
+                            </div>
                         </div>
                     </div>
                     <div id="graphContainer" class="bg-gray-900/30 flex-grow" style="min-height: 600px;">

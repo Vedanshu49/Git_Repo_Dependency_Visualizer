@@ -366,3 +366,50 @@ body {
     height: 12px;
     border-radius: 2px;
 }
+
+/* Tech Stack Icon Styling */
+.tech-icon {
+    display: flex;
+    align-items: center;
+    background-color: rgba(255, 255, 255, 0.05);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+.tech-icon img {
+    width: 24px;
+    height: 24px;
+    margin-right: 8px;
+}
+
+/* Dependency Health Styling */
+.dependency-item.vulnerable {
+    color: #f87171; /* red-400 */
+}
+
+/* Filter Checkbox */
+.filter-checkbox {
+    appearance: none;
+    background-color: #374151; /* gray-700 */
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    position: relative;
+    transition: background-color 0.2s;
+}
+
+.filter-checkbox:checked {
+    background-color: #3b82f6; /* blue-600 */
+}
+
+.filter-checkbox:checked::after {
+    content: '✔';
+    position: absolute;
+    color: white;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.8rem;
+}

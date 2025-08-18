@@ -29,13 +29,14 @@ const gotItFileTreeModalBtn = document.getElementById('gotItFileTreeModalBtn');
 const viewMoreTreeBtn = document.getElementById('viewMoreTreeBtn');
 const fileTreeSearchInput = document.getElementById('fileTreeSearchInput');
 const forgetTokenBtn = document.getElementById('forgetTokenBtn');
-let searchInput, fileTypeFilter, exportBtn, layoutSwitcher;
+let searchInput, exportBtn, layoutSwitcher;
 
 // --- State ---
 let currentOwner, currentRepo;
 let repoFiles = [];
+let allNodes = [], allEdges = []; // Master lists for filtering
 let dependencies = [];
-let nodes = [], edges = [];
+let nodes = [], edges = []; // Filtered lists for rendering
 let selectedNodeId = null;
 let simulation;
 let currentLayout = 'force'; // 'force', 'hierarchical', 'circular'
@@ -121,6 +122,10 @@ async function handleAnalyzeClick() {
 
     showMessage('Fetching repository information...');
     mainContent.classList.add('hidden');
+    // Clear previous results
+    document.getElementById('techStackContent').innerHTML = '';
+    document.getElementById('dependencyHealthContainer').innerHTML = '';
+
 
     saveToken();
 
@@ -134,17 +139,22 @@ async function handleAnalyzeClick() {
 
         showMessage('Fetching file tree...');
         const treeData = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/git/trees/${defaultBranch}?recursive=1`);
+        
+        // Full file list for tech stack detection
+        const fullFileTree = treeData.tree;
+        await detectTechStack(fullFileTree);
 
-        repoFiles = treeData.tree.filter(file => {
+        repoFiles = fullFileTree.filter(file => {
             const path = file.path.toLowerCase();
-            const isIgnored = path.includes('node_modules/') || path.includes('dist/') || path.includes('vendor/') || path.startsWith('.') || path.includes('test/') || path.includes('example/');
-            const isSupported = /\.(js|mjs|jsx|ts|tsx|html|css|py|json|go|rb|java|php)$/.test(path);
+            // Keep test files in the initial list, they will be filtered later
+            const isIgnored = path.includes('node_modules/') || path.includes('dist/') || path.includes('vendor/') || path.startsWith('.');
+            const isSupported = /\.(js|mjs|jsx|ts|tsx|html|css|scss|py|json|go|rb|java|php)$/.test(path);
             return file.type === 'blob' && isSupported && !isIgnored;
         });
-
-        if (repoFiles.length > 200) {
+        
+        if (repoFiles.length > 500) { // Increased limit
             showMessage(`Warning: Found ${repoFiles.length} files. Truncating for performance.`, false);
-            repoFiles = repoFiles.slice(0, 200);
+            repoFiles = repoFiles.slice(0, 500);
         }
 
         showMessage(`Found ${repoFiles.length} files. Analyzing dependencies...`, false);
@@ -154,10 +164,9 @@ async function handleAnalyzeClick() {
             id: file.path,
             label: file.path.split('/').pop(),
             fullPath: file.path,
-            size: file.size // Store file size
+            size: file.size
         }));
 
-        // Calculate in-degree for heatmap
         const inDegrees = {};
         dependencies.forEach(dep => {
             inDegrees[dep.to] = (inDegrees[dep.to] || 0) + 1;
@@ -166,22 +175,20 @@ async function handleAnalyzeClick() {
             node.inDegree = inDegrees[node.id] || 0;
         });
 
-
         const edgeData = dependencies.map(dep => ({ source: dep.from, target: dep.to }));
 
-        nodes = nodeData;
-        edges = edgeData;
-
+        allNodes = nodeData;
+        allEdges = edgeData;
+        
         mainContent.classList.remove('hidden');
         initializeGraphControls();
+        applyFiltersAndRender(); // This will perform the initial render
 
         hideMessage();
         const fileTreeData = buildFileTreeData(repoFiles);
-        renderFileTree(fileTreeData, fileTreeContainer); // Render preview
-        renderFileTree(fileTreeData, fullFileTreeContainer); // Render full tree in modal
-        renderGraph(nodes, edges);
+        renderFileTree(fileTreeData, fileTreeContainer);
+        renderFileTree(fileTreeData, fullFileTreeContainer);
         updateDetailsPanel(null);
-        populateFileTypeFilter();
         renderHeatmapLegend();
 
     } catch (error) {
@@ -197,12 +204,13 @@ async function handleAnalyzeClick() {
 
 function initializeGraphControls() {
     searchInput = document.getElementById('searchInput');
-    fileTypeFilter = document.getElementById('fileTypeFilter');
     exportBtn = document.getElementById('exportBtn');
     layoutSwitcher = document.getElementById('layoutSwitcher');
+    document.querySelectorAll('.filter-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', applyFiltersAndRender);
+    });
 
     searchInput.addEventListener('input', handleSearch);
-    fileTypeFilter.addEventListener('change', handleFilter);
     exportBtn.addEventListener('click', handleExport);
     layoutSwitcher.addEventListener('change', (e) => {
         currentLayout = e.target.value;
@@ -210,60 +218,150 @@ function initializeGraphControls() {
     });
 }
 
+function applyFiltersAndRender() {
+    const filters = {
+        tests: document.querySelector('[data-filter="tests"]').checked,
+        styles: document.querySelector('[data-filter="styles"]').checked,
+        json: document.querySelector('[data-filter="json"]').checked,
+    };
+
+    nodes = allNodes.filter(node => {
+        const lowerId = node.id.toLowerCase();
+        if (filters.tests && (lowerId.includes('.test.') || lowerId.includes('.spec.') || lowerId.includes('__tests__/'))) return false;
+        if (filters.styles && (lowerId.endsWith('.css') || lowerId.endsWith('.scss'))) return false;
+        if (filters.json && lowerId.endsWith('.json')) return false;
+        return true;
+    });
+    
+    const nodeIds = new Set(nodes.map(n => n.id));
+    edges = allEdges.filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+    
+    renderGraph(nodes, edges);
+}
+
+
 function handleSearch() {
     const query = searchInput.value.toLowerCase().trim();
-    filterGraph(query, fileTypeFilter.value);
-}
+    const allGraphNodes = d3.selectAll('.node');
 
-function handleFilter() {
-    const type = fileTypeFilter.value;
-    filterGraph(searchInput.value.toLowerCase().trim(), type);
-}
-
-function filterGraph(query, type) {
-    const allNodes = d3.selectAll('.node');
-    const allEdges = d3.selectAll('.edge');
-
-    const isSearchActive = query.length > 0;
-    const isFilterActive = type !== 'all';
-
-    if (!isSearchActive && !isFilterActive) {
-        allNodes.classed('searched', false);
-        allNodes.transition().duration(300).style('opacity', 1);
-        allEdges.transition().duration(300).style('opacity', 0.5);
+    if (!query) {
+        allGraphNodes.classed('searched', false).transition().duration(300).style('opacity', 1);
         return;
     }
-
-    const matchedNodeIds = new Set();
-    nodes.forEach(node => {
-        const matchesSearch = isSearchActive ? node.label.toLowerCase().includes(query) : true;
-        const matchesType = isFilterActive ? node.id.endsWith(type) : true;
-        if (matchesSearch && matchesType) {
-            matchedNodeIds.add(node.id);
-        }
+    
+    allGraphNodes.each(function(d) {
+        const isMatch = d.label.toLowerCase().includes(query);
+        d3.select(this)
+          .classed('searched', isMatch)
+          .transition().duration(300)
+          .style('opacity', isMatch ? 1 : 0.1);
     });
-
-    allNodes.classed('searched', d => isSearchActive && matchedNodeIds.has(d.id));
-    allNodes.transition().duration(300)
-        .style('opacity', d => matchedNodeIds.has(d.id) ? 1 : 0.1);
-
-    allEdges.transition().duration(300)
-        .style('opacity', d => matchedNodeIds.has(d.source.id) && matchedNodeIds.has(d.target.id) ? 0.5 : 0.05);
 }
 
-function populateFileTypeFilter() {
-    const fileTypes = new Set(nodes.map(n => {
-        const parts = n.id.split('.');
-        return parts.length > 1 ? `.${parts.pop()}` : '';
-    }).filter(Boolean));
+async function detectTechStack(files) {
+    const techStack = new Set();
+    const packageJsonFile = files.find(f => f.path.toLowerCase().endsWith('package.json'));
 
-    fileTypeFilter.innerHTML = '<option value="all">All File Types</option>';
-    [...fileTypes].sort().forEach(type => {
-        const option = document.createElement('option');
-        option.value = type;
-        option.textContent = type;
-        fileTypeFilter.appendChild(option);
+    if (packageJsonFile) {
+        techStack.add('Node.js');
+        techStack.add('npm');
+        try {
+            const content = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/contents/${packageJsonFile.path}`);
+            const decoded = atob(content.content);
+            const pkg = JSON.parse(decoded);
+            const allDependencies = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+
+            if (allDependencies.react) techStack.add('React');
+            if (allDependencies.vue) techStack.add('Vue.js');
+            if (allDependencies.angular) techStack.add('Angular');
+            if (allDependencies.express) techStack.add('Express');
+            if (allDependencies.webpack) techStack.add('Webpack');
+            if (allDependencies.typescript) techStack.add('TypeScript');
+            
+            await checkDependencyHealth(pkg.dependencies); // Check only runtime dependencies for health
+        } catch (e) {
+            console.error("Could not parse package.json", e);
+        }
+    }
+    
+    if (files.some(f => f.path.toLowerCase().endsWith('requirements.txt'))) techStack.add('Python');
+    if (files.some(f => f.path.toLowerCase().endsWith('pom.xml'))) techStack.add('Java');
+    if (files.some(f => f.path.toLowerCase().endsWith('composer.json'))) techStack.add('PHP');
+
+    displayTechStack(Array.from(techStack));
+}
+
+function displayTechStack(stack) {
+    const container = document.getElementById('techStackContent');
+    container.innerHTML = '';
+    if (stack.length === 0) {
+        container.innerHTML = '<p class="text-gray-400">No specific tech stack detected.</p>';
+        return;
+    }
+    
+    stack.forEach(tech => {
+        const slug = tech.toLowerCase().replace(/\./g, '').replace(/ /g, '-');
+        const iconUrl = `https://cdn.simpleicons.org/${slug}/white`;
+        const div = document.createElement('div');
+        div.className = 'tech-icon';
+        div.innerHTML = `<img src="${iconUrl}" alt="${tech} icon" onerror="this.style.display='none'"><span>${tech}</span>`;
+        container.appendChild(div);
     });
+}
+
+async function checkDependencyHealth(dependencies) {
+    const container = document.getElementById('dependencyHealthContainer');
+    if (!dependencies || Object.keys(dependencies).length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    
+    container.innerHTML = `
+        <h3 class="text-xl font-bold text-white mt-6 mb-2">Dependency Health</h3>
+        <p class="text-sm text-gray-400 mb-2">Based on simulated vulnerability data.</p>
+        <div id="health-loader" class="custom-loader mx-auto"></div>
+    `;
+
+    try {
+        const response = await fetch('/api/security', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dependencies })
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Failed to fetch dependency insights.');
+        }
+        
+        const insights = await response.json();
+        
+        let content = '<ul class="text-sm space-y-2 mt-2">';
+        let vulnerableCount = 0;
+        Object.entries(insights).forEach(([name, data]) => {
+            if (data.vulnerable) vulnerableCount++;
+            content += `
+                <li class="dependency-item ${data.vulnerable ? 'vulnerable' : ''}">
+                    <strong>${name}</strong>
+                    <span class="text-gray-400">(${data.license || 'N/A'})</span>
+                    ${data.vulnerable ? ` - 🚨 Vulnerable (${data.current})` : ''}
+                </li>
+            `;
+        });
+        content += '</ul>';
+
+        const summary = vulnerableCount > 0 
+            ? `<p class="text-red-400 font-bold">${vulnerableCount} potential vulnerabilit${vulnerableCount > 1 ? 'ies' : 'y'} found.</p>`
+            : `<p class="text-green-400 font-bold">No known vulnerabilities found.</p>`;
+
+        container.innerHTML = `
+            <h3 class="text-xl font-bold text-white mt-6 mb-2">Dependency Health</h3>
+            ${summary}
+            ${content}
+        `;
+
+    } catch (error) {
+        container.innerHTML = `<p class="text-red-400">Could not load dependency health: ${error.message}</p>`;
+    }
 }
 
 
@@ -403,7 +501,7 @@ function renderGraph(nodeData, edgeData) {
 
     const node = g.append("g")
         .selectAll("g")
-        .data(nodeData)
+        .data(nodeData, d => d.id) // Key function for object constancy
         .join("g")
         .attr("class", "node")
         .style("opacity", 0)
@@ -441,7 +539,7 @@ function renderGraph(nodeData, edgeData) {
 
     link.transition()
         .duration(700)
-        .delay(nodes.length * 7)
+        .delay(nodeData.length * 7)
         .ease(d3.easeCubicOut)
         .style("opacity", 0.5);
 
@@ -503,15 +601,14 @@ function applyForceLayout(nodeData, edgeData, node, link) {
 }
 
 function applyHierarchicalLayout(nodeData, edgeData, node, link, width, height) {
-    // *** FIX: Handle case with no dependencies ***
     if (edgeData.length === 0) {
         // Arrange in a grid-like fashion if no dependencies exist
         const cols = Math.ceil(Math.sqrt(nodeData.length));
-        const cellWidth = width / cols;
-        const cellHeight = height / cols;
+        const cellWidth = Math.max(150, width / cols);
+        const cellHeight = Math.max(100, height / cols);
         nodeData.forEach((d, i) => {
-            d.x = (i % cols) * cellWidth - width / 2 + cellWidth / 2;
-            d.y = Math.floor(i / cols) * cellHeight - height / 2 + cellHeight / 2;
+            d.x = (i % cols) * cellWidth - (cellWidth * (cols-1))/2;
+            d.y = Math.floor(i / cols) * cellHeight - (cellHeight * (Math.floor((nodeData.length-1)/cols)))/2;
         });
 
         node.transition().duration(750)
@@ -521,61 +618,56 @@ function applyHierarchicalLayout(nodeData, edgeData, node, link, width, height) 
     }
 
     const nodeMap = new Map(nodeData.map(d => [d.id, d]));
-    const children = d => edgeData.filter(e => e.source === d.id).map(e => nodeMap.get(e.target));
-    const roots = nodeData.filter(d => !edgeData.some(e => e.target === d.id));
+    const children = d => edgeData.filter(e => e.source.id === d.id).map(e => nodeMap.get(e.target.id));
+    const roots = nodeData.filter(d => !edgeData.some(e => e.target.id === d.id));
     
-    // If no clear roots, pick nodes with only outgoing edges
     if(roots.length === 0) {
-        const hasIncoming = new Set(edgeData.map(e => e.target));
+        const hasIncoming = new Set(edgeData.map(e => e.target.id));
         roots.push(...nodeData.filter(d => !hasIncoming.has(d.id)));
     }
-    // If still no roots, just use the first node (cyclic graph)
     if(roots.length === 0 && nodeData.length > 0) roots.push(nodeData[0]);
 
-
-    const hierarchy = d3.hierarchy({ children: roots }, d => children(d.data));
+    const hierarchy = d3.hierarchy({ id: 'root', children: roots }, d => d.children ? d.children.map(id => nodeMap.get(id)) : children(d));
     
-    // *** DYNAMIC SIZING LOGIC ***
-    const nodeHeight = 80; // vertical spacing
-    const nodeWidth = 150; // horizontal spacing
+    const nodeHeight = 80;
+    const nodeWidth = 180;
     const treeLayout = d3.tree().nodeSize([nodeHeight, nodeWidth]);
     
     treeLayout(hierarchy);
 
-    const descendants = hierarchy.descendants();
+    const descendants = hierarchy.descendants().slice(1); // Exclude the dummy root
     
-    node.transition().duration(750)
+    node.data(descendants.map(d => d.data), d => d.id)
+        .transition().duration(750)
         .attr("transform", d => {
             const hNode = descendants.find(h => h.data.id === d.id);
             if (hNode) {
-                // Swap x and y for a horizontal tree
                 d.x = hNode.y;
                 d.y = hNode.x;
                 return `translate(${d.x}, ${d.y})`;
             }
-            return `translate(0, 0)`; // Default position
+            return `translate(0, 0)`;
         });
         
     link.transition().duration(750)
         .attr("d", d => {
-             const source = descendants.find(h => h.data.id === d.source.id);
-             const target = descendants.find(h => h.data.id === d.target.id);
-             if (source && target) {
-                 return d3.linkHorizontal()({ source: [source.y, source.x], target: [target.y, target.x] });
+             const sourceNode = descendants.find(h => h.data.id === d.source.id);
+             const targetNode = descendants.find(h => h.data.id === d.target.id);
+             if (sourceNode && targetNode) {
+                 return d3.linkHorizontal()({ source: [sourceNode.y, sourceNode.x], target: [targetNode.y, targetNode.x] });
              }
              return "";
         });
 }
 
 function applyCircularLayout(nodeData, edgeData, node, link, width, height) {
-    // *** DYNAMIC SIZING LOGIC ***
     const minRadius = 100;
-    const nodeSpacing = 80; // Desired space per node on the circumference
+    const nodeSpacing = 80;
     const requiredCircumference = nodeData.length * nodeSpacing;
     const calculatedRadius = requiredCircumference / (2 * Math.PI);
     
-    const radius = Math.max(minRadius, calculatedRadius);
-    const angleStep = (2 * Math.PI) / nodeData.length;
+    const radius = Math.max(minRadius, calculatedRadius, Math.min(width, height) / 3);
+    const angleStep = nodeData.length > 1 ? (2 * Math.PI) / nodeData.length : 0;
 
     nodeData.forEach((d, i) => {
         d.x = radius * Math.cos(i * angleStep);
@@ -592,6 +684,10 @@ function applyCircularLayout(nodeData, edgeData, node, link, width, height) {
 
 function renderHeatmapLegend() {
     const legendContainer = document.getElementById('heatmap-legend');
+    if (!nodes || nodes.length === 0) {
+        legendContainer.innerHTML = '';
+        return;
+    }
     const maxInDegree = d3.max(nodes, d => d.inDegree) || 1;
     const colorScale = d3.scaleSequential(d3.interpolateYlOrRd).domain([0, maxInDegree]);
 
@@ -668,7 +764,7 @@ function highlightNodes(nodeId) {
         .style('opacity', d => connectedIds.has(d.id) ? 1 : 0.1);
 
     allEdges.transition(t)
-        .style('opacity', d => d.source.id === nodeId || d.target.id === nodeId ? 0.9 : 0.1)
+        .style('opacity', d => (d.source.id === nodeId || d.target.id === nodeId) || (d.source.id === nodeId && d.target.id === nodeId) ? 0.9 : 0.1)
         .attr("stroke", d => {
             if (d.source.id === nodeId) return "#2dd4bf";
             if (d.target.id === nodeId) return "#f472b6";
@@ -682,11 +778,11 @@ async function updateDetailsPanel(nodeId) {
         return;
     }
 
-    const node = nodes.find(n => n.id === nodeId);
+    const node = allNodes.find(n => n.id === nodeId); // Use allNodes to find details even if filtered
     if (!node) return;
 
-    const nodeDependencies = edges.filter(e => e.source.id === nodeId).map(e => e.target.id);
-    const nodeDependents = edges.filter(e => e.target.id === nodeId).map(e => e.source.id);
+    const nodeDependencies = allEdges.filter(e => e.source.id === nodeId).map(e => e.target.id);
+    const nodeDependents = allEdges.filter(e => e.target.id === nodeId).map(e => e.source.id);
 
     const createList = (items) => items.length > 0
         ? items.map(d => `<li class="p-2 rounded-md transition cursor-pointer" onclick="handleNodeClick('${d}')">${d}</li>`).join('')
@@ -719,14 +815,13 @@ async function updateDetailsPanel(nodeId) {
     document.getElementById('explainFileBtn').addEventListener('click', () => handleExplainFile(nodeId));
     document.getElementById('refineFileBtn').addEventListener('click', () => handleRefineFile(nodeId));
 
-    // Fetch and display complexity metrics
     displayComplexityMetrics(nodeId);
 }
 
 async function displayComplexityMetrics(nodeId) {
     const metricsContainer = document.getElementById('complexity-metrics');
     try {
-        const node = nodes.find(n => n.id === nodeId);
+        const node = allNodes.find(n => n.id === nodeId);
         const contentResponse = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/contents/${nodeId}`);
         const fileContent = atob(contentResponse.content);
 
@@ -862,7 +957,6 @@ async function apiFetch(url) {
     const token = githubTokenInput.value.trim();
     const headers = { 'Accept': 'application/vnd.github.v3+json' };
     
-    // Only add the Authorization header if a token is provided.
     if (token) {
         headers['Authorization'] = `token ${token}`;
     }
@@ -870,7 +964,6 @@ async function apiFetch(url) {
     const response = await fetch(url, { headers });
 
     if (!response.ok) {
-        // Handle rate limit error specifically
         if (response.status === 403) {
              const errorData = await response.json();
              const message = errorData.message || "";
