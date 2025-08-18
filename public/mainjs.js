@@ -389,15 +389,16 @@ function renderGraph(nodeData, edgeData) {
         .append("path")
         .attr("d", "M0,-5L10,0L0,5")
         .attr("fill", "#6b7280");
-
+        
     const link = g.append("g")
-        .selectAll("line")
+        .selectAll("path")
         .data(edgeData)
-        .join("line")
+        .join("path")
         .attr("class", "edge")
         .attr("stroke", "#4b5563")
         .attr("stroke-width", 1.5)
         .attr("marker-end", "url(#arrowhead)")
+        .attr("fill", "none")
         .style("opacity", 0);
 
     const node = g.append("g")
@@ -412,14 +413,18 @@ function renderGraph(nodeData, edgeData) {
 
     const maxInDegree = d3.max(nodeData, d => d.inDegree) || 1;
     const colorScale = d3.scaleSequential(d3.interpolateYlOrRd).domain([0, maxInDegree]);
+    
+    // Dynamic node radius based on graph size
+    const nodeBaseRadius = nodeData.length > 75 ? 4 : 6;
+    const nodeRadius = d => nodeBaseRadius + Math.sqrt(d.inDegree || 1) * 2.5;
 
     node.append("circle")
-        .attr("r", d => 6 + Math.sqrt(d.inDegree || 1) * 2.5)
+        .attr("r", nodeRadius)
         .attr("fill", d => colorScale(d.inDegree))
         .attr("stroke", "#4b5563");
 
     node.append("text")
-        .attr("y", d => (15 + Math.sqrt(d.inDegree || 1) * 2.5) * -1)
+        .attr("y", d => (15 + nodeRadius(d)) * -1)
         .attr("class", "node-label")
         .text(d => d.label);
 
@@ -440,6 +445,9 @@ function renderGraph(nodeData, edgeData) {
         .ease(d3.easeCubicOut)
         .style("opacity", 0.5);
 
+    // Stop any previous simulation
+    if (simulation) simulation.stop();
+
     if (currentLayout === 'force') {
         applyForceLayout(nodeData, edgeData, node, link, width, height);
     } else if (currentLayout === 'hierarchical') {
@@ -448,19 +456,38 @@ function renderGraph(nodeData, edgeData) {
         applyCircularLayout(nodeData, edgeData, node, link, width, height);
     }
 
-    const zoom = d3.zoom().scaleExtent([0.1, 4]).on("zoom", (event) => {
+    const zoom = d3.zoom().scaleExtent([0.1, 8]).on("zoom", (event) => {
         g.attr("transform", event.transform);
     });
+    
+    // Set initial zoom to fit all nodes
+    const bounds = g.node().getBBox();
+    const fullWidth = bounds.width;
+    const fullHeight = bounds.height;
+    const midX = bounds.x + fullWidth / 2;
+    const midY = bounds.y + fullHeight / 2;
+    if (fullWidth === 0 || fullHeight === 0) { // No nodes, prevent zoom error
+        svg.call(zoom);
+    } else {
+        const scale = 0.85 / Math.max(fullWidth / width, fullHeight / height);
+        const translate = [width / 2 - scale * midX, height / 2 - scale * midY];
+
+        svg.transition().duration(750).call(
+            zoom.transform,
+            d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale)
+        );
+    }
+
     svg.call(zoom).on("dblclick.zoom", null);
     svg.on("click", () => {
         if (selectedNodeId) handleNodeClick(null);
     });
 }
 
-function applyForceLayout(nodeData, edgeData, node, link, width, height) {
+function applyForceLayout(nodeData, edgeData, node, link) {
     simulation = d3.forceSimulation(nodeData)
-        .force("link", d3.forceLink(edgeData).id(d => d.id).distance(120))
-        .force("charge", d3.forceManyBody().strength(-350))
+        .force("link", d3.forceLink(edgeData).id(d => d.id).distance(nodeData.length > 50 ? 150 : 120))
+        .force("charge", d3.forceManyBody().strength(nodeData.length > 50 ? -400 : -350))
         .force("center", d3.forceCenter(0, 0))
         .force("x", d3.forceX())
         .force("y", d3.forceY());
@@ -469,39 +496,85 @@ function applyForceLayout(nodeData, edgeData, node, link, width, height) {
 
     simulation.on("tick", () => {
         link
-            .attr("x1", d => d.source.x)
-            .attr("y1", d => d.source.y)
-            .attr("x2", d => d.target.x)
-            .attr("y2", d => d.target.y);
+            .attr("d", d => `M${d.source.x},${d.source.y} L${d.target.x},${d.target.y}`);
         node
             .attr("transform", d => `translate(${d.x}, ${d.y})`);
     });
 }
 
 function applyHierarchicalLayout(nodeData, edgeData, node, link, width, height) {
-    const root = d3.stratify()
-        .id(d => d.id)
-        .parentId(d => {
-            const edge = edgeData.find(e => e.target.id === d.id);
-            return edge ? edge.source.id : null;
-        })
-        (nodeData);
+    // *** FIX: Handle case with no dependencies ***
+    if (edgeData.length === 0) {
+        // Arrange in a grid-like fashion if no dependencies exist
+        const cols = Math.ceil(Math.sqrt(nodeData.length));
+        const cellWidth = width / cols;
+        const cellHeight = height / cols;
+        nodeData.forEach((d, i) => {
+            d.x = (i % cols) * cellWidth - width / 2 + cellWidth / 2;
+            d.y = Math.floor(i / cols) * cellHeight - height / 2 + cellHeight / 2;
+        });
 
-    const treeLayout = d3.tree().size([height, width - 200]);
-    treeLayout(root);
+        node.transition().duration(750)
+            .attr("transform", d => `translate(${d.x}, ${d.y})`);
+        link.attr("d", ""); // Hide links as there are none
+        return;
+    }
 
+    const nodeMap = new Map(nodeData.map(d => [d.id, d]));
+    const children = d => edgeData.filter(e => e.source === d.id).map(e => nodeMap.get(e.target));
+    const roots = nodeData.filter(d => !edgeData.some(e => e.target === d.id));
+    
+    // If no clear roots, pick nodes with only outgoing edges
+    if(roots.length === 0) {
+        const hasIncoming = new Set(edgeData.map(e => e.target));
+        roots.push(...nodeData.filter(d => !hasIncoming.has(d.id)));
+    }
+    // If still no roots, just use the first node (cyclic graph)
+    if(roots.length === 0 && nodeData.length > 0) roots.push(nodeData[0]);
+
+
+    const hierarchy = d3.hierarchy({ children: roots }, d => children(d.data));
+    
+    // *** DYNAMIC SIZING LOGIC ***
+    const nodeHeight = 80; // vertical spacing
+    const nodeWidth = 150; // horizontal spacing
+    const treeLayout = d3.tree().nodeSize([nodeHeight, nodeWidth]);
+    
+    treeLayout(hierarchy);
+
+    const descendants = hierarchy.descendants();
+    
     node.transition().duration(750)
-        .attr("transform", d => `translate(${d.y}, ${d.x})`);
-
+        .attr("transform", d => {
+            const hNode = descendants.find(h => h.data.id === d.id);
+            if (hNode) {
+                // Swap x and y for a horizontal tree
+                d.x = hNode.y;
+                d.y = hNode.x;
+                return `translate(${d.x}, ${d.y})`;
+            }
+            return `translate(0, 0)`; // Default position
+        });
+        
     link.transition().duration(750)
-        .attr("x1", d => d.source.y)
-        .attr("y1", d => d.source.x)
-        .attr("x2", d => d.target.y)
-        .attr("y2", d => d.target.x);
+        .attr("d", d => {
+             const source = descendants.find(h => h.data.id === d.source.id);
+             const target = descendants.find(h => h.data.id === d.target.id);
+             if (source && target) {
+                 return d3.linkHorizontal()({ source: [source.y, source.x], target: [target.y, target.x] });
+             }
+             return "";
+        });
 }
 
 function applyCircularLayout(nodeData, edgeData, node, link, width, height) {
-    const radius = Math.min(width, height) / 2 - 80;
+    // *** DYNAMIC SIZING LOGIC ***
+    const minRadius = 100;
+    const nodeSpacing = 80; // Desired space per node on the circumference
+    const requiredCircumference = nodeData.length * nodeSpacing;
+    const calculatedRadius = requiredCircumference / (2 * Math.PI);
+    
+    const radius = Math.max(minRadius, calculatedRadius);
     const angleStep = (2 * Math.PI) / nodeData.length;
 
     nodeData.forEach((d, i) => {
@@ -513,11 +586,9 @@ function applyCircularLayout(nodeData, edgeData, node, link, width, height) {
         .attr("transform", d => `translate(${d.x}, ${d.y})`);
 
     link.transition().duration(750)
-        .attr("x1", d => d.source.x)
-        .attr("y1", d => d.source.y)
-        .attr("x2", d => d.target.x)
-        .attr("y2", d => d.target.y);
+        .attr("d", d => `M${d.source.x},${d.source.y} L${d.target.x},${d.target.y}`);
 }
+
 
 function renderHeatmapLegend() {
     const legendContainer = document.getElementById('heatmap-legend');
@@ -790,16 +861,29 @@ function filterFileTree(container, query) {
 async function apiFetch(url) {
     const token = githubTokenInput.value.trim();
     const headers = { 'Accept': 'application/vnd.github.v3+json' };
+    
+    // Only add the Authorization header if a token is provided.
     if (token) {
         headers['Authorization'] = `token ${token}`;
     }
+
     const response = await fetch(url, { headers });
+
     if (!response.ok) {
+        // Handle rate limit error specifically
+        if (response.status === 403) {
+             const errorData = await response.json();
+             const message = errorData.message || "";
+             if (message.includes("API rate limit exceeded")) {
+                 throw new Error("API rate limit exceeded. Please add a GitHub Personal Access Token to continue.");
+             }
+        }
         const errorData = await response.json();
         throw new Error(errorData.message || `API request failed: ${response.status}`);
     }
     return response.json();
 }
+
 
 function showMessage(text) {
     messageOverlay.classList.remove('hidden');
