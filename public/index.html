@@ -18,9 +18,10 @@
         <div class="blob blob-3"></div>
         <div class="blob blob-4"></div>
     </div>
+
     <canvas id="spark-canvas"></canvas>
 
-    <div class="container mx-auto p-4 md-p-8">
+    <div class="container mx-auto p-4 md:p-8">
         <header class="text-center mb-10">
             <h1 id="main-title" class="text-4xl md:text-5xl font-bold text-white">Git Dependency Visualizer</h1>
             <p id="subtitle" class="text-gray-400 mt-3 text-lg">A PROJECT BY VEDANSHU PANDEY</p>
@@ -67,6 +68,13 @@
                         <div id="repoOverviewContainer" class="mt-4"></div>
                     </div>
 
+                    <div id="detailsPanel" class="p-6 rounded-2xl shadow-2xl glass-panel">
+                        <h2 class="text-2xl font-bold mb-4 text-white">File Details</h2>
+                        <div id="detailsContent" class="text-gray-300 h-full">
+                            <p class="mt-10 text-center text-gray-400">Click a file to see its details.</p>
+                        </div>
+                    </div>
+
                     <div id="fileStructurePanel" class="p-6 rounded-2xl shadow-2xl glass-panel">
                         <div class="flex justify-between items-center mb-4">
                             <h2 class="text-2xl font-bold text-white">File Structure</h2>
@@ -75,13 +83,6 @@
                                 More</button>
                         </div>
                         <div id="fileTreeContainer" class="file-tree-preview">
-                        </div>
-                    </div>
-
-                    <div id="detailsPanel" class="p-6 rounded-2xl shadow-2xl glass-panel">
-                        <h2 class="text-2xl font-bold mb-4 text-white">File Details</h2>
-                        <div id="detailsContent" class="text-gray-300 h-full">
-                            <p class="mt-10 text-center text-gray-400">Click a file to see its details.</p>
                         </div>
                     </div>
                 </div>
@@ -150,45 +151,6 @@
                             (PAT). It's more secure than a password and you can control its permissions.</p>
 
                         <ol class="list-decimal list-inside space-y-4 pl-2">
-                            <li>
-                                <strong>Go to GitHub Settings:</strong>
-                                <br /><span class="text-gray-400">Sign in to GitHub. Click your profile picture
-                                    (top-right), then select <strong class="text-white">Settings</strong>.</span>
-                            </li>
-                            <li>
-                                <strong>Navigate to Developer Settings:</strong>
-                                <br /><span class="text-gray-400">In the left sidebar, scroll down and click on <strong
-                                        class="text-white">Developer settings</strong>.</span>
-                            </li>
-                            <li>
-                                <strong>Select Personal Access Tokens:</strong>
-                                <br /><span class="text-gray-400">In the new sidebar, click <strong
-                                        class="text-white">Personal access tokens</strong>, then <strong
-                                        class="text-white">Tokens (classic)</strong>.</span>
-                            </li>
-                            <li>
-                                <strong>Generate a New Token:</strong>
-                                <br /><span class="text-gray-400">Click <strong class="text-white">Generate new
-                                        token</strong> and select <strong class="text-white">Generate new token
-                                        (classic)</strong>.</span>
-                            </li>
-                            <li>
-                                <strong>Configure Your Token:</strong>
-                                <ul class="list-disc list-inside mt-2 pl-6 space-y-2 text-gray-400">
-                                    <li><strong>Note:</strong> Give your token a descriptive name (e.g.,
-                                        "RepoVisualizerApp").</li>
-                                    <li><strong>Expiration:</strong> Choose an expiration date (30 days is a good
-                                        default).</li>
-                                    <li><strong>Scopes:</strong> For this app, you only need to read public data. You
-                                        can leave all scope boxes <strong class="text-pink-400">unchecked</strong>. This
-                                        is the most secure option.</li>
-                                </ul>
-                            </li>
-                            <li>
-                                <strong>Create and Copy:</strong>
-                                <br /><span class="text-gray-400">Scroll down and click the green <strong
-                                        class="text-white">Generate token</strong> button.</span>
-                            </li>
                         </ol>
                         <div
                             class="bg-yellow-500/10 border-l-4 border-yellow-400 text-yellow-200 p-4 mt-4 rounded-r-lg">
