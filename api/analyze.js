@@ -1,4 +1,3 @@
-
 const fetch = require('node-fetch');
 const { kv } = require('@vercel/kv');
 const crypto = require('crypto');
@@ -22,12 +21,15 @@ module.exports = async (req, res) => {
             return res.status(400).json({ error: 'Missing required parameters.' });
         }
 
+        const isProduction = process.env.VERCEL_ENV === 'production';
         const filePathsString = files.map(f => f.path).join(',');
         const cacheKey = `deps:${owner}-${repo}-${latestCommit}-${hash(filePathsString)}`;
 
-        const cachedDependencies = await kv.get(cacheKey);
-        if (cachedDependencies) {
-            return res.status(200).json({ dependencies: cachedDependencies, fromCache: true });
+        if (isProduction) {
+            const cachedDependencies = await kv.get(cacheKey);
+            if (cachedDependencies) {
+                return res.status(200).json({ dependencies: cachedDependencies, fromCache: true });
+            }
         }
 
         // Fetch file tree and alias map here
@@ -37,7 +39,9 @@ module.exports = async (req, res) => {
 
         const dependencies = await analyzeFileDependencies(owner, repo, files, token, allFilePaths, aliasMap || {});
         
-        await kv.set(cacheKey, dependencies, { ex: 3600 }); // Cache for 1 hour
+        if (isProduction) {
+            await kv.set(cacheKey, dependencies, { ex: 3600 }); // Cache for 1 hour
+        }
 
         res.status(200).json({ dependencies, fromCache: false });
 
