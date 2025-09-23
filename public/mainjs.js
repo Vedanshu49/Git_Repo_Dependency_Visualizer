@@ -908,7 +908,7 @@ async function updateDetailsPanel(nodeId) {
     const nodeDependents = allEdges.filter(e => e.target.id === nodeId).map(e => e.source.id);
 
     const createList = (items) => items.length > 0
-        ? items.map(d => `<li class="p-2 rounded-md transition cursor-pointer" onclick="handleNodeClick('${d}')">${d}</li>`).join('')
+        ? items.map(d => `<li class="p-2 rounded-md transition cursor-pointer" onclick="handleNodeClick(\'${d}\')">${d}</li>`).join('')
         : '<li class="p-2 text-gray-500">None</li>';
 
     detailsContent.innerHTML = `
@@ -1359,11 +1359,9 @@ For each function or class method, provide:
 
 Here is the code:
 
-\
-```\
+
 ${fileContent}
-\
-```\
+
 `;
         aiModalResult.innerHTML = ''; // Clear content before streaming
         let fullResponse = '';
@@ -1502,8 +1500,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const x = e.clientX;
             const y = e.clientY;
             const now = performance.now();
-            const newSparks = Array.from({
-                length: sparkConfig.sparkCount
+            const newSparks = Array.from({ 
+                length: sparkConfig.sparkCount 
             }, (_, i) => ({
                 x, y,
                 angle: (2 * Math.PI * i) / sparkConfig.sparkCount,
