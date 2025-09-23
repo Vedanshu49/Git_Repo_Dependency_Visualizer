@@ -30,6 +30,7 @@ const viewMoreTreeBtn = document.getElementById('viewMoreTreeBtn');
 const fileTreeSearchInput = document.getElementById('fileTreeSearchInput');
 const forgetTokenBtn = document.getElementById('forgetTokenBtn');
 const commitSelector = document.getElementById('commit-selector');
+const goToLatestBtn = document.getElementById('goToLatestBtn');
 let searchInput, exportBtn, layoutSwitcher;
 
 // --- State ---
@@ -80,6 +81,7 @@ commitSelector.addEventListener('change', (e) => {
         handleAnalyzeClick(commitSha);
     }
 });
+goToLatestBtn.addEventListener('click', () => handleAnalyzeClick());
 
 // --- Modal Functions ---
 function openModal(modal) {
@@ -379,6 +381,11 @@ async function handleAnalyzeClick(commitSha = null) {
         showMessage('Fetching file tree...');
         const treeData = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/git/trees/${latestCommitSha}?recursive=1`);
         
+        if (!treeData.tree || treeData.tree.length === 0) {
+            openModal(errorModal);
+            errorModalText.textContent = 'No files found for this commit.';
+            return;
+        }
         const fullFileTree = treeData.tree || [];
         await detectTechStack(fullFileTree);
 
@@ -1223,8 +1230,10 @@ async function handleGenerateRepoOverview() {
 File list:
 ${fileList}`;
         aiModalResult.innerHTML = ''; // Clear content before streaming
+        let fullResponse = '';
         await callGeminiAPI(prompt, (chunk) => {
-            aiModalResult.innerHTML += simpleMarkdownToHtml(chunk);
+            fullResponse += chunk;
+            aiModalResult.innerHTML = simpleMarkdownToHtml(fullResponse);
         });
     } catch (error) {
         aiModalResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
@@ -1257,8 +1266,10 @@ ${fileContent}
 
 `;
         aiModalResult.innerHTML = ''; // Clear content before streaming
+        let fullResponse = '';
         await callGeminiAPI(prompt, (chunk) => {
-            aiModalResult.innerHTML += simpleMarkdownToHtml(chunk);
+            fullResponse += chunk;
+            aiModalResult.innerHTML = simpleMarkdownToHtml(fullResponse);
         });
     } catch (error) {
         aiModalResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
@@ -1305,8 +1316,10 @@ async function handleRefineFile(filePath) {
 ${fileContent}${dependentContents}`;
         
         aiModalResult.innerHTML = ''; // Clear content before streaming
+        let fullResponse = '';
         await callGeminiAPI(prompt, (chunk) => {
-            aiModalResult.innerHTML += simpleMarkdownToHtml(chunk);
+            fullResponse += chunk;
+            aiModalResult.innerHTML = simpleMarkdownToHtml(fullResponse);
         });
     } catch (error) {
         aiModalResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
@@ -1347,12 +1360,16 @@ For each function or class method, provide:
 Here is the code:
 
 \
+```\
 ${fileContent}
 \
+```\
 `;
         aiModalResult.innerHTML = ''; // Clear content before streaming
+        let fullResponse = '';
         await callGeminiAPI(prompt, (chunk) => {
-            aiModalResult.innerHTML += simpleMarkdownToHtml(chunk);
+            fullResponse += chunk;
+            aiModalResult.innerHTML = simpleMarkdownToHtml(fullResponse);
         });
     } catch (error) {
         aiModalResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;

@@ -215,23 +215,23 @@ body {
     text-align: center;
 }
 
-.tree-folder>.tree-item .icon::before {
+.tree-folder > .tree-item .icon::before {
     content: '📁';
 }
 
-.tree-folder.collapsed>.tree-item .icon::before {
+.tree-folder.collapsed > .tree-item .icon::before {
     content: '📁';
 }
 
-.tree-file>.tree-item .icon::before {
+.tree-file > .tree-item .icon::before {
     content: '📄';
 }
 
-.tree-folder>ul {
+.tree-folder > ul {
     display: block;
 }
 
-.tree-folder.collapsed>ul {
+.tree-folder.collapsed > ul {
     display: none;
 }
 
@@ -447,4 +447,16 @@ body {
     50% {
         opacity: .5;
     }
+}
+
+#layoutHelpBtn {
+    position: relative;
+}
+
+#layoutHelpPopup {
+    width: 250px;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 10px;
 }
