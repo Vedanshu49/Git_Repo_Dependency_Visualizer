@@ -29,20 +29,22 @@ const gotItFileTreeModalBtn = document.getElementById('gotItFileTreeModalBtn');
 const viewMoreTreeBtn = document.getElementById('viewMoreTreeBtn');
 const fileTreeSearchInput = document.getElementById('fileTreeSearchInput');
 const forgetTokenBtn = document.getElementById('forgetTokenBtn');
+const commitSelector = document.getElementById('commit-selector');
 let searchInput, exportBtn, layoutSwitcher;
 
 // --- State ---
 let currentOwner, currentRepo;
 let repoFiles = [];
-let allNodes = [], allEdges = []; // Master lists for filtering
+let allFolderEdges = [];
 let dependencies = [];
-let nodes = [], edges = []; // Filtered lists for rendering
+let allNodes = [], nodes = [], edges = []; // allNodes contains everything, nodes is the filtered list for rendering
 let selectedNodeId = null;
 let simulation;
 let currentLayout = 'force'; // 'force', 'hierarchical', 'circular'
+let isFocusModeActive = false; // Global state for focus mode
 
 // --- Event Listeners ---
-analyzeBtn.addEventListener('click', handleAnalyzeClick);
+analyzeBtn.addEventListener('click', () => handleAnalyzeClick());
 repoUrlInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') handleAnalyzeClick();
 });
@@ -72,6 +74,12 @@ fileTreeSearchInput.addEventListener('input', () => {
     filterFileTree(fullFileTreeContainer, query);
 });
 forgetTokenBtn.addEventListener('click', forgetToken);
+commitSelector.addEventListener('change', (e) => {
+    const commitSha = e.target.value;
+    if (commitSha) {
+        handleAnalyzeClick(commitSha);
+    }
+});
 
 // --- Modal Functions ---
 function openModal(modal) {
@@ -103,104 +111,7 @@ function closeModal(modal) {
 
 
 // --- Main Logic ---
-async function handleAnalyzeClick() {
-    const url = repoUrlInput.value.trim();
-    const githubRegex = /github\.com\/([^/]+)\/([^/]+)/;
-    const match = url.match(githubRegex);
 
-    if (!match) {
-        openModal(errorModal);
-        errorModalText.textContent = 'Invalid GitHub repository URL.';
-        return;
-    }
-
-    currentOwner = match[1];
-    currentRepo = match[2];
-
-    analyzeBtn.disabled = true;
-    analyzeBtn.classList.add('opacity-50', 'cursor-not-allowed');
-
-    showMessage('Fetching repository information...');
-    mainContent.classList.add('hidden');
-    // Clear previous results
-    document.getElementById('techStackContent').innerHTML = '';
-    document.getElementById('dependencyHealthContainer').innerHTML = '';
-
-
-    saveToken();
-
-    try {
-        const repoInfo = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}`);
-        const commitsData = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/commits?per_page=100`);
-
-        displayRepoInfo(repoInfo, commitsData);
-
-        const defaultBranch = repoInfo.default_branch;
-
-        showMessage('Fetching file tree...');
-        const treeData = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/git/trees/${defaultBranch}?recursive=1`);
-        
-        // Full file list for tech stack detection
-        const fullFileTree = treeData.tree;
-        await detectTechStack(fullFileTree);
-
-        repoFiles = fullFileTree.filter(file => {
-            const path = file.path.toLowerCase();
-            // Keep test files in the initial list, they will be filtered later
-            const isIgnored = path.includes('node_modules/') || path.includes('dist/') || path.includes('vendor/') || path.startsWith('.');
-            const isSupported = /\.(js|mjs|jsx|ts|tsx|html|css|scss|py|json|go|rb|java|php)$/.test(path);
-            return file.type === 'blob' && isSupported && !isIgnored;
-        });
-        
-        if (repoFiles.length > 500) { // Increased limit
-            showMessage(`Warning: Found ${repoFiles.length} files. Truncating for performance.`, false);
-            repoFiles = repoFiles.slice(0, 500);
-        }
-
-        showMessage(`Found ${repoFiles.length} files. Analyzing dependencies...`, false);
-        dependencies = await analyzeFileDependencies(currentOwner, currentRepo);
-
-        const nodeData = repoFiles.map(file => ({
-            id: file.path,
-            label: file.path.split('/').pop(),
-            fullPath: file.path,
-            size: file.size
-        }));
-
-        const inDegrees = {};
-        dependencies.forEach(dep => {
-            inDegrees[dep.to] = (inDegrees[dep.to] || 0) + 1;
-        });
-        nodeData.forEach(node => {
-            node.inDegree = inDegrees[node.id] || 0;
-        });
-
-        const edgeData = dependencies.map(dep => ({ source: dep.from, target: dep.to }));
-
-        allNodes = nodeData;
-        allEdges = edgeData;
-        
-        mainContent.classList.remove('hidden');
-        initializeGraphControls();
-        applyFiltersAndRender(); // This will perform the initial render
-
-        hideMessage();
-        const fileTreeData = buildFileTreeData(repoFiles);
-        renderFileTree(fileTreeData, fileTreeContainer);
-        renderFileTree(fileTreeData, fullFileTreeContainer);
-        updateDetailsPanel(null);
-        renderHeatmapLegend();
-
-    } catch (error) {
-        console.error('Error analyzing repository:', error);
-        hideMessage();
-        openModal(errorModal);
-        errorModalText.textContent = `Error: ${error.message}. Check if the repository is public and your token is valid.`;
-    } finally {
-        analyzeBtn.disabled = false;
-        analyzeBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-    }
-}
 
 function initializeGraphControls() {
     searchInput = document.getElementById('searchInput');
@@ -223,6 +134,8 @@ function applyFiltersAndRender() {
         tests: document.querySelector('[data-filter="tests"]').checked,
         styles: document.querySelector('[data-filter="styles"]').checked,
         json: document.querySelector('[data-filter="json"]').checked,
+        folders: document.querySelector('[data-filter="folders"]').checked,
+        unused: document.querySelector('[data-filter="unused"]').checked
     };
 
     nodes = allNodes.filter(node => {
@@ -234,7 +147,14 @@ function applyFiltersAndRender() {
     });
     
     const nodeIds = new Set(nodes.map(n => n.id));
-    edges = allEdges.filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+    let dependencyEdges = allEdges.filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+    
+    edges = dependencyEdges;
+
+    if (filters.folders) {
+        const folderEdges = allFolderEdges.filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+        edges = [...edges, ...folderEdges];
+    }
     
     renderGraph(nodes, edges);
 }
@@ -260,7 +180,11 @@ function handleSearch() {
 
 async function detectTechStack(files) {
     const techStack = new Set();
-    const packageJsonFile = files.find(f => f.path.toLowerCase().endsWith('package.json'));
+    if (!files || !Array.isArray(files)) {
+        displayTechStack(Array.from(techStack));
+        return;
+    }
+    const packageJsonFile = files.find(f => f && f.path && f.path.toLowerCase().endsWith('package.json'));
 
     if (packageJsonFile) {
         techStack.add('Node.js');
@@ -284,9 +208,9 @@ async function detectTechStack(files) {
         }
     }
     
-    if (files.some(f => f.path.toLowerCase().endsWith('requirements.txt'))) techStack.add('Python');
-    if (files.some(f => f.path.toLowerCase().endsWith('pom.xml'))) techStack.add('Java');
-    if (files.some(f => f.path.toLowerCase().endsWith('composer.json'))) techStack.add('PHP');
+    if (files.some(f => f && f.path && f.path.toLowerCase().endsWith('requirements.txt'))) techStack.add('Python');
+    if (files.some(f => f && f.path && f.path.toLowerCase().endsWith('pom.xml'))) techStack.add('Java');
+    if (files.some(f => f && f.path && f.path.toLowerCase().endsWith('composer.json'))) techStack.add('PHP');
 
     displayTechStack(Array.from(techStack));
 }
@@ -360,7 +284,7 @@ async function checkDependencyHealth(dependencies) {
         `;
 
     } catch (error) {
-        container.innerHTML = `<p class="text-red-400">Could not load dependency health: ${error.message}</p>`;
+        container.innerHTML = `<p class="text-red-400">Could not load complexity metrics.</p>`;
     }
 }
 
@@ -395,6 +319,15 @@ function displayRepoInfo(repoInfo, commitsData) {
         </div>
     `;
 
+    commitSelector.innerHTML = '<option value="">View Past Commits</option>';
+    commitsData.forEach(commit => {
+        const option = document.createElement('option');
+        option.value = commit.sha;
+        option.textContent = `${commit.commit.message.split('\n')[0]} (${new Date(commit.commit.committer.date).toLocaleDateString()})`;
+        commitSelector.appendChild(option);
+    });
+    commitSelector.disabled = false;
+
     repoOverviewContainer.innerHTML = `
         <button id="generateRepoOverviewBtn" class="glare-hover w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center shadow-lg">
             Generate Repo Overview
@@ -403,66 +336,219 @@ function displayRepoInfo(repoInfo, commitsData) {
     document.getElementById('generateRepoOverviewBtn').addEventListener('click', handleGenerateRepoOverview);
 }
 
-async function analyzeFileDependencies(owner, repo) {
-    const allDependencies = [];
-    const filePaths = new Set(repoFiles.map(f => f.path));
 
-    const promises = repoFiles.map(async file => {
-        try {
-            const contentResponse = await apiFetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file.path}`);
-            const fileContent = atob(contentResponse.content);
-            const foundImports = parseContentForImports(fileContent, file.path);
 
-            foundImports.forEach(imp => {
-                const targetPath = resolvePath(file.path, imp);
-                if (filePaths.has(targetPath)) {
-                    allDependencies.push({ from: file.path, to: targetPath });
-                }
-            });
-        } catch (error) {
-            console.warn(`Could not analyze file: ${file.path}`, error);
-        }
-    });
-
-    await Promise.all(promises);
-    return allDependencies;
-}
-
-function parseContentForImports(content, path) {
-    const imports = new Set();
-    const importRegex = /(?:import|from|require)\s*(?:(?:\{[^}]*\}|\* as \w+)\s*from\s*)?['"]((?:\.\/|\.\.\/)[^'"]+?)(?:\.js|\.ts|\.mjs|\.jsx|\.tsx)?['"]/g;
-    const htmlRegex = /(?:href|src)=['"]((?:\.\/|\.\.\/)[^'"]+\.(?:css|js|png|jpg|svg))/g;
-    const regex = path.endsWith('.html') ? htmlRegex : importRegex;
-
-    let match;
-    while ((match = regex.exec(content)) !== null) {
-        imports.add(match[1]);
-    }
-    return Array.from(imports);
-}
-
-function resolvePath(basePath, relativePath) {
-    const baseParts = basePath.split('/').slice(0, -1);
-    const relativeParts = relativePath.split('/');
-
-    for (const part of relativeParts) {
-        if (part === '..') baseParts.pop();
-        else if (part !== '.') baseParts.push(part);
-    }
-
-    let resolved = baseParts.join('/');
-    const filePaths = new Set(repoFiles.map(f => f.path));
-
-    if (filePaths.has(resolved)) return resolved;
-
-    const possibleExtensions = ['.js', '.jsx', '.ts', '.tsx', '/index.js', '/index.ts'];
-    for (const ext of possibleExtensions) {
-        if (filePaths.has(resolved + ext)) return resolved + ext;
-    }
-    return resolved;
-}
 
 // --- D3 Visualization ---
+async function handleAnalyzeClick(commitSha = null) {
+    const url = repoUrlInput.value.trim();
+    const githubRegex = /github\.com\/([^\/]+)\/([^\/]+)/;
+    const match = url.match(githubRegex);
+
+    if (!match) {
+        openModal(errorModal);
+        errorModalText.textContent = 'Invalid GitHub repository URL.';
+        return;
+    }
+
+    currentOwner = match[1];
+    currentRepo = match[2];
+
+    analyzeBtn.disabled = true;
+    analyzeBtn.classList.add('opacity-50', 'cursor-not-allowed');
+
+    showMessage('Fetching repository information...');
+    document.getElementById('skeleton-loader').classList.remove('hidden'); // Show skeleton loader
+    mainContent.classList.add('hidden'); // Hide main content initially
+    // Clear previous results
+    document.getElementById('techStackContent').innerHTML = '';
+    document.getElementById('dependencyHealthContainer').innerHTML = '';
+
+    saveToken();
+
+    try {
+        const repoInfo = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}`);
+        const commitsData = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/commits?per_page=100`);
+
+        if (!commitSha) {
+            displayRepoInfo(repoInfo, commitsData);
+        }
+
+        const latestCommitSha = commitSha || (await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/branches/${repoInfo.default_branch}`)).commit.sha;
+
+        showMessage('Fetching file tree...');
+        const treeData = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/git/trees/${latestCommitSha}?recursive=1`);
+        
+        const fullFileTree = treeData.tree || [];
+        await detectTechStack(fullFileTree);
+
+        repoFiles = fullFileTree.filter(file => {
+            const path = file.path.toLowerCase();
+            const isIgnored = path.includes('node_modules/') || path.includes('dist/') || path.includes('vendor/') || path.startsWith('.');
+            return file.type === 'blob' && !isIgnored; // Only blobs (files) are analyzable
+        });
+
+        showMessage(`File tree loaded! Preparing to analyze ${repoFiles.length} files.`);
+        
+        if (repoFiles.length > 1500) { // Increased limit
+            showMessage(`Warning: Found ${repoFiles.length} files. This might take a while...`, false);
+        }
+
+        // --- Backend Analysis via Chunking ---
+        dependencies = [];
+        const chunkSize = 20;
+        const numChunks = Math.ceil(repoFiles.length / chunkSize);
+
+        for (let i = 0; i < numChunks; i++) {
+            const chunk = repoFiles.slice(i * chunkSize, (i + 1) * chunkSize);
+            showMessage(`Analyzing dependencies (Batch ${i + 1} of ${numChunks})...`);
+            
+            const response = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    owner: currentOwner,
+                    repo: currentRepo,
+                    files: chunk,
+                    token: githubTokenInput.value.trim(),
+                    latestCommit: latestCommitSha
+                })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.details || `Analysis failed on chunk ${i + 1}.`);
+            }
+
+            const result = await response.json();
+            dependencies.push(...result.dependencies);
+        }
+        // --- End Backend Analysis ---
+
+
+        const nodeData = repoFiles.map(file => ({
+            id: file.path,
+            label: file.path.split('/').pop(),
+            fullPath: file.path,
+            size: file.size
+        }));
+
+        const inDegrees = {};
+        const outDegrees = {};
+        dependencies.forEach(dep => {
+            inDegrees[dep.to] = (inDegrees[dep.to] || 0) + 1;
+            outDegrees[dep.from] = (outDegrees[dep.from] || 0) + 1;
+        });
+
+        nodeData.forEach(node => {
+            node.inDegree = inDegrees[node.id] || 0;
+            node.outDegree = outDegrees[node.id] || 0;
+            node.isUnused = node.inDegree === 0 && node.outDegree === 0;
+        });
+
+        const edgeData = dependencies.map(dep => ({ source: dep.from, target: dep.to, type: 'dependency' }));
+
+        allNodes = nodeData;
+        allEdges = edgeData;
+
+        allFolderEdges = [];
+        const allNodeIds = new Set(allNodes.map(n => n.id));
+        // Create a set of all directory paths to represent them as nodes
+        const folderPaths = new Set();
+        allNodes.forEach(node => {
+            const pathParts = node.id.split('/');
+            let currentPath = '';
+            for (let i = 0; i < pathParts.length - 1; i++) {
+                currentPath += (i > 0 ? '/' : '') + pathParts[i];
+                folderPaths.add(currentPath);
+            }
+        });
+
+        // Add folder nodes to the graph
+        folderPaths.forEach(path => {
+            if (!allNodeIds.has(path)) {
+                allNodes.push({
+                    id: path,
+                    label: path.split('/').pop(),
+                    fullPath: path,
+                    size: 0, // Folders have no size
+                    isFolder: true // Custom flag
+                });
+                allNodeIds.add(path);
+            }
+        });
+        
+        // Create containment edges
+        allNodes.forEach(node => {
+            if (!node.isFolder) {
+                const pathParts = node.id.split('/');
+                if (pathParts.length > 1) {
+                    const parentPath = pathParts.slice(0, -1).join('/');
+                    if (allNodeIds.has(parentPath)) {
+                        allFolderEdges.push({
+                            source: parentPath,
+                            target: node.id,
+                            type: 'containment'
+                        });
+                    }
+                }
+            }
+        });
+        
+        document.getElementById('skeleton-loader').classList.add('hidden'); // Hide skeleton loader
+        mainContent.classList.remove('hidden'); // Show main content
+        initializeGraphControls();
+        applyFiltersAndRender(); // This will perform the initial render
+
+        hideMessage();
+        const fileTreeData = buildFileTreeData(repoFiles);
+        renderFileTree(fileTreeData, fileTreeContainer);
+        renderFileTree(fileTreeData, fullFileTreeContainer);
+        updateDetailsPanel(null);
+        renderHeatmapLegend();
+
+    } catch (error) {
+        console.error('Error analyzing repository:', error);
+        hideMessage();
+        openModal(errorModal);
+        errorModalText.textContent = `Error: ${error.message}. Check if the repository is public and your token is valid.`;
+    } finally {
+        analyzeBtn.disabled = false;
+        analyzeBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+    }
+}
+
+
+function applyFiltersAndRender() {
+    const filters = {
+        tests: document.querySelector('[data-filter="tests"]').checked,
+        styles: document.querySelector('[data-filter="styles"]').checked,
+        json: document.querySelector('[data-filter="json"]').checked,
+        folders: document.querySelector('[data-filter="folders"]').checked,
+        unused: document.querySelector('[data-filter="unused"]').checked
+    };
+
+    nodes = allNodes.filter(node => {
+        const lowerId = node.id.toLowerCase();
+        if (filters.tests && (lowerId.includes('.test.') || lowerId.includes('.spec.') || lowerId.includes('__tests__/'))) return false;
+        if (filters.styles && (lowerId.endsWith('.css') || lowerId.endsWith('.scss'))) return false;
+        if (filters.json && lowerId.endsWith('.json')) return false;
+        return true;
+    });
+    
+    const nodeIds = new Set(nodes.map(n => n.id));
+    let dependencyEdges = allEdges.filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+    
+    edges = dependencyEdges;
+
+    if (filters.folders) {
+        const folderEdges = allFolderEdges.filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+        edges = [...edges, ...folderEdges];
+    }
+    
+    renderGraph(nodes, edges);
+}
+
 function renderGraph(nodeData, edgeData) {
     graphContainer.innerHTML = '';
     const width = graphContainer.clientWidth;
@@ -488,22 +574,33 @@ function renderGraph(nodeData, edgeData) {
         .attr("d", "M0,-5L10,0L0,5")
         .attr("fill", "#6b7280");
         
+    const nodeMap = new Map(nodeData.map(d => [d.id, d]));
+    const hydratedEdges = edgeData.map(edge => ({
+        ...edge,
+        source: nodeMap.get(edge.source),
+        target: nodeMap.get(edge.target)
+    })).filter(e => e.source && e.target);
+
     const link = g.append("g")
         .selectAll("path")
-        .data(edgeData)
+        .data(hydratedEdges)
         .join("path")
         .attr("class", "edge")
-        .attr("stroke", "#4b5563")
-        .attr("stroke-width", 1.5)
-        .attr("marker-end", "url(#arrowhead)")
+        .attr("stroke", d => d.type === 'containment' ? '#5a6675' : '#4b5563')
+        .attr("stroke-width", d => d.type === 'containment' ? 1 : 1.5)
+        .attr("stroke-dasharray", d => d.type === 'containment' ? "3,3" : null)
+        .attr("marker-end", d => d.type === 'containment' ? null : "url(#arrowhead)")
         .attr("fill", "none")
         .style("opacity", 0);
+
+    const highlightUnused = document.querySelector('[data-filter="unused"]').checked;
 
     const node = g.append("g")
         .selectAll("g")
         .data(nodeData, d => d.id) // Key function for object constancy
         .join("g")
         .attr("class", "node")
+        .classed("unused-node", d => highlightUnused && d.isUnused)
         .style("opacity", 0)
         .on("mouseover", function () {
             d3.select(this).raise();
@@ -547,11 +644,11 @@ function renderGraph(nodeData, edgeData) {
     if (simulation) simulation.stop();
 
     if (currentLayout === 'force') {
-        applyForceLayout(nodeData, edgeData, node, link, width, height);
+        applyForceLayout(nodeData, hydratedEdges, node, link, width, height);
     } else if (currentLayout === 'hierarchical') {
-        applyHierarchicalLayout(nodeData, edgeData, node, link, width, height);
+        applyHierarchicalLayout(nodeData, hydratedEdges, node, link, width, height);
     } else if (currentLayout === 'circular') {
-        applyCircularLayout(nodeData, edgeData, node, link, width, height);
+        applyCircularLayout(nodeData, hydratedEdges, node, link, width, height);
     }
 
     const zoom = d3.zoom().scaleExtent([0.1, 8]).on("zoom", (event) => {
@@ -582,9 +679,53 @@ function renderGraph(nodeData, edgeData) {
     });
 }
 
-function applyForceLayout(nodeData, edgeData, node, link) {
+function highlightNodes(nodeId) {
+    const t = d3.transition().duration(500).ease(d3.easeCubicOut);
+    const allGraphNodes = d3.selectAll('.node');
+    const allEdges = d3.selectAll('.edge');
+
+    if (!nodeId) {
+        allGraphNodes.classed('selected dependency dependent', false);
+        allGraphNodes.transition(t).style('opacity', 1);
+        allEdges.transition(t).style('opacity', 0.5).attr("stroke", d => d.type === 'containment' ? '#5a6675' : '#4b5563');
+        return;
+    }
+
+    const dependencyIds = new Set(edges.filter(e => e.type === 'dependency' && e.source.id === nodeId).map(e => e.target.id));
+    const dependentIds = new Set(edges.filter(e => e.type === 'dependency' && e.target.id === nodeId).map(e => e.source.id));
+    const connectedIds = new Set([nodeId, ...dependencyIds, ...dependentIds]);
+
+    allGraphNodes.classed('selected dependency dependent', false);
+    allGraphNodes
+        .classed('selected', d => d.id === nodeId)
+        .classed('dependency', d => dependencyIds.has(d.id))
+        .classed('dependent', d => dependentIds.has(d.id));
+
+    if (isFocusModeActive) {
+        allGraphNodes.transition(t)
+            .style('opacity', d => connectedIds.has(d.id) ? 1 : 0.1);
+        allEdges.transition(t)
+            .style('opacity', d => {
+                if (d.type === 'containment') return 0.1;
+                if (d.source.id === nodeId || d.target.id === nodeId) return 0.9;
+                return 0.05;
+            });
+    } else {
+        allGraphNodes.transition(t).style('opacity', 1);
+        allEdges.transition(t).style('opacity', 0.5);
+    }
+
+    allEdges.attr("stroke", d => {
+        if (d.type === 'containment') return '#5a6675';
+        if (d.source.id === nodeId) return "#2dd4bf";
+        if (d.target.id === nodeId) return "#f472b6";
+        return "#4b5563";
+    });
+}
+
+function applyForceLayout(nodeData, edgeData, node, link, width, height) {
     simulation = d3.forceSimulation(nodeData)
-        .force("link", d3.forceLink(edgeData).id(d => d.id).distance(nodeData.length > 50 ? 150 : 120))
+        .force("link", d3.forceLink(edgeData).distance(nodeData.length > 50 ? 150 : 120))
         .force("charge", d3.forceManyBody().strength(nodeData.length > 50 ? -400 : -350))
         .force("center", d3.forceCenter(0, 0))
         .force("x", d3.forceX())
@@ -601,7 +742,9 @@ function applyForceLayout(nodeData, edgeData, node, link) {
 }
 
 function applyHierarchicalLayout(nodeData, edgeData, node, link, width, height) {
-    if (edgeData.length === 0) {
+    const dependencyEdges = edgeData.filter(e => e.type === 'dependency');
+
+    if (dependencyEdges.length === 0) {
         // Arrange in a grid-like fashion if no dependencies exist
         const cols = Math.ceil(Math.sqrt(nodeData.length));
         const cellWidth = Math.max(150, width / cols);
@@ -613,21 +756,21 @@ function applyHierarchicalLayout(nodeData, edgeData, node, link, width, height) 
 
         node.transition().duration(750)
             .attr("transform", d => `translate(${d.x}, ${d.y})`);
-        link.attr("d", ""); // Hide links as there are none
+        link.transition().duration(750).attr("d", d => `M${d.source.x},${d.source.y} L${d.target.x},${d.target.y}`);
         return;
     }
 
     const nodeMap = new Map(nodeData.map(d => [d.id, d]));
-    const children = d => edgeData.filter(e => e.source.id === d.id).map(e => nodeMap.get(e.target.id));
-    const roots = nodeData.filter(d => !edgeData.some(e => e.target.id === d.id));
+    const children = d => dependencyEdges.filter(e => e.source.id === d.id).map(e => e.target);
+    const roots = nodeData.filter(d => !dependencyEdges.some(e => e.target.id === d.id));
     
     if(roots.length === 0) {
-        const hasIncoming = new Set(edgeData.map(e => e.target.id));
+        const hasIncoming = new Set(dependencyEdges.map(e => e.target.id));
         roots.push(...nodeData.filter(d => !hasIncoming.has(d.id)));
     }
     if(roots.length === 0 && nodeData.length > 0) roots.push(nodeData[0]);
 
-    const hierarchy = d3.hierarchy({ id: 'root', children: roots }, d => d.children ? d.children.map(id => nodeMap.get(id)) : children(d));
+    const hierarchy = d3.hierarchy({ id: 'root', children: roots }, d => d.children ? d.children : children(d));
     
     const nodeHeight = 80;
     const nodeWidth = 180;
@@ -637,24 +780,19 @@ function applyHierarchicalLayout(nodeData, edgeData, node, link, width, height) 
 
     const descendants = hierarchy.descendants().slice(1); // Exclude the dummy root
     
-    node.data(descendants.map(d => d.data), d => d.id)
-        .transition().duration(750)
-        .attr("transform", d => {
-            const hNode = descendants.find(h => h.data.id === d.id);
-            if (hNode) {
-                d.x = hNode.y;
-                d.y = hNode.x;
-                return `translate(${d.x}, ${d.y})`;
-            }
-            return `translate(0, 0)`;
-        });
+    descendants.forEach(h => {
+        const node = h.data;
+        node.x = h.y;
+        node.y = h.x;
+    });
+
+    node.transition().duration(750)
+        .attr("transform", d => `translate(${d.x || 0}, ${d.y || 0})`);
         
     link.transition().duration(750)
         .attr("d", d => {
-             const sourceNode = descendants.find(h => h.data.id === d.source.id);
-             const targetNode = descendants.find(h => h.data.id === d.target.id);
-             if (sourceNode && targetNode) {
-                 return d3.linkHorizontal()({ source: [sourceNode.y, sourceNode.x], target: [targetNode.y, targetNode.x] });
+             if (d.source && d.target) {
+                 return d3.linkHorizontal()({ source: [d.source.y, d.source.x], target: [d.target.y, d.target.x] });
              }
              return "";
         });
@@ -694,7 +832,7 @@ function renderHeatmapLegend() {
     legendContainer.innerHTML = '<span>Less Critical</span>';
     for (let i = 0; i <= 1; i += 0.25) {
         const color = colorScale(maxInDegree * i);
-        legendContainer.innerHTML += `<div class="color-box" style="background-color: ${color};"></div>`;
+        legendContainer.innerHTML += `<div class="color-box" style="background-color: ${color};"></div`;
     }
     legendContainer.innerHTML += '<span>More Critical</span>';
 }
@@ -733,43 +871,21 @@ function handleNodeClick(nodeId) {
         });
     }
 
+    if (!nodeId) {
+        isFocusModeActive = false; // Turn off focus when clicking background
+    }
     selectedNodeId = (selectedNodeId === nodeId) ? null : nodeId;
+    
     updateDetailsPanel(selectedNodeId);
     highlightNodes(selectedNodeId);
 }
 
-function highlightNodes(nodeId) {
-    const t = d3.transition().duration(500).ease(d3.easeCubicOut);
-    const allNodes = d3.selectAll('.node');
-    const allEdges = d3.selectAll('.edge');
-
-    if (!nodeId) {
-        allNodes.classed('selected dependency dependent', false);
-        allNodes.transition(t).style('opacity', 1);
-        allEdges.transition(t).style('opacity', 0.5).attr("stroke", "#4b5563");
-        return;
-    }
-
-    const dependencyIds = new Set(edges.filter(e => e.source.id === nodeId).map(e => e.target.id));
-    const dependentIds = new Set(edges.filter(e => e.target.id === nodeId).map(e => e.source.id));
-    const connectedIds = new Set([nodeId, ...dependencyIds, ...dependentIds]);
-
-    allNodes.classed('selected dependency dependent', false);
-    allNodes
-        .classed('selected', d => d.id === nodeId)
-        .classed('dependency', d => dependencyIds.has(d.id))
-        .classed('dependent', d => dependentIds.has(d.id));
-
-    allNodes.transition(t)
-        .style('opacity', d => connectedIds.has(d.id) ? 1 : 0.1);
-
-    allEdges.transition(t)
-        .style('opacity', d => (d.source.id === nodeId || d.target.id === nodeId) || (d.source.id === nodeId && d.target.id === nodeId) ? 0.9 : 0.1)
-        .attr("stroke", d => {
-            if (d.source.id === nodeId) return "#2dd4bf";
-            if (d.target.id === nodeId) return "#f472b6";
-            return "#4b5563";
-        });
+function toggleFocusMode() {
+    if (!selectedNodeId) return;
+    isFocusModeActive = !isFocusModeActive;
+    
+    highlightNodes(selectedNodeId);
+    updateDetailsPanel(selectedNodeId);
 }
 
 async function updateDetailsPanel(nodeId) {
@@ -789,7 +905,12 @@ async function updateDetailsPanel(nodeId) {
         : '<li class="p-2 text-gray-500">None</li>';
 
     detailsContent.innerHTML = `
-        <h3 class="text-lg font-semibold text-white break-words">${node.fullPath}</h3>
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold text-white break-words">${node.fullPath}</h3>
+            <button id="focusModeBtn" class="glare-hover bg-gray-700 text-white text-xs font-semibold py-1 px-3 rounded-lg hover:bg-gray-600 transition duration-300">
+                ${isFocusModeActive ? 'Unfocus' : 'Focus'}
+            </button>
+        </div>
         <div id="complexity-metrics" class="mt-4 text-sm text-gray-400">
             <p>Loading metrics...</p>
         </div>
@@ -810,10 +931,15 @@ async function updateDetailsPanel(nodeId) {
             <button id="refineFileBtn" class="glare-hover w-full bg-purple-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-purple-700 transition duration-300 flex items-center justify-center shadow-lg">
                 Suggest Refinements
             </button>
+            <button id="generateDocsBtn" class="glare-hover w-full bg-green-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-green-700 transition duration-300 flex items-center justify-center shadow-lg">
+                Generate Docs
+            </button>
         </div>
     `;
     document.getElementById('explainFileBtn').addEventListener('click', () => handleExplainFile(nodeId));
     document.getElementById('refineFileBtn').addEventListener('click', () => handleRefineFile(nodeId));
+    document.getElementById('generateDocsBtn').addEventListener('click', () => handleGenerateDocs(nodeId));
+    document.getElementById('focusModeBtn').addEventListener('click', () => toggleFocusMode());
 
     displayComplexityMetrics(nodeId);
 }
@@ -843,29 +969,44 @@ async function displayComplexityMetrics(nodeId) {
 // --- File Tree Functions ---
 function buildFileTreeData(files) {
     const tree = { name: "root", type: "folder", children: [] };
-    files.forEach(file => {
+    if (!files) return tree;
+
+    for (const file of files) {
+        if (!file || !file.path) continue;
+
         let currentLevel = tree.children;
         const pathParts = file.path.split('/');
-        pathParts.forEach((part, i) => {
+
+        for (let i = 0; i < pathParts.length; i++) {
+            const part = pathParts[i];
             const isLastPart = i === pathParts.length - 1;
+
             let existingPath = currentLevel.find(item => item.name === part);
 
             if (existingPath) {
+                if (existingPath.type === 'file' && !isLastPart) {
+                    // Path conflict: a file is in the middle of a path. Convert it to a folder.
+                    existingPath.type = 'folder';
+                    existingPath.children = [];
+                }
                 currentLevel = existingPath.children;
             } else {
                 const newEntry = {
                     name: part,
-                    type: isLastPart ? "file" : "folder",
+                    type: isLastPart ? 'file' : 'folder',
                     path: isLastPart ? file.path : null,
                     children: isLastPart ? null : []
                 };
                 currentLevel.push(newEntry);
-                if (!isLastPart) {
-                    currentLevel = newEntry.children;
-                }
+                currentLevel = newEntry.children;
             }
-        });
-    });
+
+            // If we've hit a leaf (null children), we can't go deeper.
+            if (currentLevel === null) {
+                break;
+            }
+        }
+    }
     return tree;
 }
 
@@ -978,9 +1119,24 @@ async function apiFetch(url) {
 }
 
 
-function showMessage(text) {
+function showMessage(title, message) {
     messageOverlay.classList.remove('hidden');
-    messageText.textContent = text;
+    const titleElement = messageOverlay.querySelector('h3');
+    const messageElement = messageOverlay.querySelector('p');
+    
+    if (title) {
+        titleElement.textContent = title;
+        titleElement.classList.remove('hidden');
+    } else {
+        titleElement.classList.add('hidden');
+    }
+    
+    if (message) {
+        messageElement.textContent = message;
+        messageElement.classList.remove('hidden');
+    } else {
+        messageElement.classList.add('hidden');
+    }
 }
 
 function hideMessage() {
@@ -1001,7 +1157,7 @@ function simpleMarkdownToHtml(markdown) {
 }
 
 // --- Gemini API Functions ---
-async function callGeminiAPI(prompt) {
+async function callGeminiAPI(prompt, onChunkReceived) {
     const apiUrl = '/api/gemini';
 
     const payload = {
@@ -1021,12 +1177,35 @@ async function callGeminiAPI(prompt) {
         throw new Error(errorData.error?.message || `API request failed with status ${response.status}`);
     }
 
-    const result = await response.json();
-    if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
-        return result.candidates[0].content.parts[0].text;
-    } else {
-        throw new Error("Invalid response structure from Gemini API.");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let resultText = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        // Each chunk might contain multiple JSON objects or partial objects
+        // We need to parse them carefully.
+        // The Gemini API for streaming often sends data in the format: data: {json}
+        chunk.split('\n').forEach(line => {
+            if (line.startsWith('data: ')) {
+                try {
+                    const jsonStr = line.substring(6);
+                    const json = JSON.parse(jsonStr);
+                    const part = json.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (part) {
+                        resultText += part;
+                        onChunkReceived(part); // Callback to update UI
+                    }
+                } catch (e) {
+                    console.error("Error parsing stream chunk:", e, "Chunk:", line);
+                }
+            }
+        });
     }
+    return resultText;
 }
 
 async function handleGenerateRepoOverview() {
@@ -1039,9 +1218,14 @@ async function handleGenerateRepoOverview() {
 
     try {
         const fileList = repoFiles.map(f => f.path).join('\n');
-        const prompt = `Based on this list of file paths from a software repository, provide a high-level overview of the project's likely purpose and architecture. Format the response using Markdown. What kind of application is this? What technologies are likely being used?\n\nFile list:\n${fileList}`;
-        const overview = await callGeminiAPI(prompt);
-        aiModalResult.innerHTML = simpleMarkdownToHtml(overview);
+        const prompt = `Based on this list of file paths from a software repository, provide a high-level overview of the project's likely purpose and architecture. Format the response using Markdown. What kind of application is this? What technologies are likely being used?
+
+File list:
+${fileList}`;
+        aiModalResult.innerHTML = ''; // Clear content before streaming
+        await callGeminiAPI(prompt, (chunk) => {
+            aiModalResult.innerHTML += simpleMarkdownToHtml(chunk);
+        });
     } catch (error) {
         aiModalResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
     } finally {
@@ -1066,9 +1250,16 @@ async function handleExplainFile(filePath) {
         } catch (e) {
             throw new Error("Could not decode file content. It may be a binary file or have an unsupported encoding.");
         }
-        const prompt = `Explain what this code does in simple terms. Format the response using Markdown. Focus on its primary purpose and how it might interact with other files. Here is the code for the file "${filePath}":\n\n\`\`\`\n${fileContent}\n\`\`\``;
-        const explanation = await callGeminiAPI(prompt);
-        aiModalResult.innerHTML = simpleMarkdownToHtml(explanation);
+        const prompt = `Explain what this code does in simple terms. Format the response using Markdown. Focus on its primary purpose and how it might interact with other files. Here is the code for the file "${filePath}":
+
+
+${fileContent}
+
+`;
+        aiModalResult.innerHTML = ''; // Clear content before streaming
+        await callGeminiAPI(prompt, (chunk) => {
+            aiModalResult.innerHTML += simpleMarkdownToHtml(chunk);
+        });
     } catch (error) {
         aiModalResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
     } finally {
@@ -1093,14 +1284,81 @@ async function handleRefineFile(filePath) {
         } catch (e) {
             throw new Error("Could not decode file content. It may be a binary file or have an unsupported encoding.");
         }
-        const prompt = `Act as a senior software engineer performing a code review. Analyze the following code from the file "${filePath}". Provide actionable suggestions for refinement. Focus on improving readability, efficiency, and adherence to best practices. Do not rewrite the entire file, but instead, identify specific code blocks and explain how they could be improved. Format the response using Markdown. \n\n\`\`\`\n${fileContent}\n\`\`\``;
-        const refinement = await callGeminiAPI(prompt);
-        aiModalResult.innerHTML = simpleMarkdownToHtml(refinement);
+
+        const dependents = allEdges.filter(e => e.target.id === filePath).map(e => e.source.id);
+        let dependentContents = '';
+        if (dependents.length > 0) {
+            dependentContents += '\n\nThis file is a dependency for the following files:\n';
+            for (const dependent of dependents) {
+                try {
+                    const dependentContentResponse = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/contents/${dependent}`);
+                    const dependentContent = atob(dependentContentResponse.content);
+                    dependentContents += `\n--- ${dependent} ---\n${dependentContent}\n`;
+                } catch (e) {
+                    dependentContents += `\n--- ${dependent} --- (Could not fetch content)---\n`;
+                }
+            }
+        }
+
+        const prompt = `Act as a senior software engineer performing a code review. Analyze the following code from the file "${filePath}". Provide actionable suggestions for refinement. Focus on improving readability, efficiency, and adherence to best practices. Do not rewrite the entire file, but instead, identify specific code blocks and explain how they could be improved. Format the response using Markdown. 
+
+${fileContent}${dependentContents}`;
+        
+        aiModalResult.innerHTML = ''; // Clear content before streaming
+        await callGeminiAPI(prompt, (chunk) => {
+            aiModalResult.innerHTML += simpleMarkdownToHtml(chunk);
+        });
     } catch (error) {
         aiModalResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
     } finally {
         btn.disabled = false;
         btn.innerHTML = 'Suggest Refinements';
+    }
+}
+
+async function handleGenerateDocs(filePath) {
+    const btn = document.getElementById('generateDocsBtn');
+    btn.disabled = true;
+    btn.innerHTML = 'Generating...';
+    aiModalTitle.textContent = 'AI-Powered Documentation';
+    aiModalResult.innerHTML = '<div class="custom-loader mx-auto"></div>';
+    openModal(aiModal);
+
+    try {
+        const contentResponse = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/contents/${filePath}`);
+        let fileContent;
+        try {
+            fileContent = atob(contentResponse.content);
+        } catch (e) {
+            throw new Error("Could not decode file content. It may be a binary file or have an unsupported encoding.");
+        }
+        const prompt = `Act as a technical writer. Analyze the following code and generate formal, structured documentation for it in Markdown format. For the file "${filePath}", please include the following sections:
+
+### Summary
+A brief, one-paragraph summary of the file's purpose and overall functionality.
+
+### Functions
+For each function or class method, provide:
+- **Description:** A clear explanation of what the function does.
+- **Parameters:** A list of parameters, their types, and descriptions.
+- **Returns:** A description of what the function returns.
+- **Example:** A short, practical code snippet showing how to use the function.
+
+Here is the code:
+
+\
+${fileContent}
+\
+`;
+        aiModalResult.innerHTML = ''; // Clear content before streaming
+        await callGeminiAPI(prompt, (chunk) => {
+            aiModalResult.innerHTML += simpleMarkdownToHtml(chunk);
+        });
+    } catch (error) {
+        aiModalResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Generate Docs';
     }
 }
 
@@ -1230,8 +1488,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const newSparks = Array.from({
                 length: sparkConfig.sparkCount
             }, (_, i) => ({
-                x,
-                y,
+                x, y,
                 angle: (2 * Math.PI * i) / sparkConfig.sparkCount,
                 startTime: now,
             }));

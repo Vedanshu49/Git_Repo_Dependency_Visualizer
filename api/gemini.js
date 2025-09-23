@@ -15,8 +15,7 @@ app.post('/api/gemini', async (req, res) => {
         return res.status(500).json({ error: 'API key not configured on the server.' });
     }
 
-    // Note the updated Gemini API model name for better performance
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`;
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:streamGenerateContent?key=${geminiApiKey}`;
 
     try {
         const geminiResponse = await fetch(apiUrl, {
@@ -27,14 +26,20 @@ app.post('/api/gemini', async (req, res) => {
             body: JSON.stringify(req.body) // Forward the prompt from the frontend
         });
 
-        const data = await geminiResponse.json();
-
         if (!geminiResponse.ok) {
-            console.error('Gemini API Error:', data);
-            return res.status(geminiResponse.status).json(data);
+            const errorData = await geminiResponse.json();
+            console.error('Gemini API Error:', errorData);
+            return res.status(geminiResponse.status).json(errorData);
         }
 
-        res.json(data);
+        // Set headers for streaming
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+
+        // Pipe the Gemini response stream directly to the client
+        geminiResponse.body.pipe(res);
+
     } catch (error) {
         console.error('Server Error:', error);
         res.status(500).json({ error: 'An internal server error occurred.' });
