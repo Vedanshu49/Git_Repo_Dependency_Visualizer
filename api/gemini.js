@@ -1,14 +1,10 @@
-const express = require('express');
 const fetch = require('node-fetch');
-const cors = require('cors');
 
-const app = express();
+module.exports = async (req, res) => {
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method Not Allowed' });
+    }
 
-// Set up CORS and JSON parsing
-app.use(cors());
-app.use(express.json());
-
-app.post('/api/gemini', async (req, res) => {
     const geminiApiKey = process.env.GEMINI_API_KEY;
 
     if (!geminiApiKey) {
@@ -38,41 +34,11 @@ app.post('/api/gemini', async (req, res) => {
         res.setHeader('Connection', 'keep-alive');
 
         // Process the stream and forward it in the desired format
-        const reader = geminiResponse.body.getReader();
-        const decoder = new TextDecoder();
-
-        const processStream = async () => {
-            try {
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) {
-                        res.end();
-                        break;
-                    }
-                    const chunk = decoder.decode(value, { stream: true });
-                    try {
-                        res.write(`data: ${chunk}\n\n`);
-                    } catch (e) {
-                        console.error("Error writing to stream:", e, "Chunk:", chunk);
-                    }
-                }
-            } catch (error) {
-                console.error('Error processing stream:', error);
-                if (!res.headersSent) {
-                    res.status(500).json({ error: 'Error processing stream' });
-                } else {
-                    res.end();
-                }
-            }
-        };
-
-        processStream();
+        const reader = geminiResponse.body;
+        reader.pipe(res);
 
     } catch (error) {
         console.error('Server Error:', error);
         res.status(500).json({ error: 'An internal server error occurred.' });
     }
-});
-
-// Export the app instance for Vercel
-module.exports = app;
+};
