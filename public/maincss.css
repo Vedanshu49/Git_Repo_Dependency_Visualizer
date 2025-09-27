@@ -460,5 +460,5 @@ body {
     transform: translateX(-50%);
     margin-bottom: 10px;
     background-color: #1f2937;
-    white-space: normal;
+    overflow-wrap: break-word;
 }
