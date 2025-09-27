@@ -37,8 +37,32 @@ app.post('/api/gemini', async (req, res) => {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
 
-        // Pipe the Gemini response stream directly to the client
-        geminiResponse.body.pipe(res);
+        // Process the stream and forward it in the desired format
+        const reader = geminiResponse.body.getReader();
+        const decoder = new TextDecoder();
+
+        const processStream = async () => {
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        res.end();
+                        break;
+                    }
+                    const chunk = decoder.decode(value, { stream: true });
+                    res.write(`data: ${chunk}\n\n`);
+                }
+            } catch (error) {
+                console.error('Error processing stream:', error);
+                if (!res.headersSent) {
+                    res.status(500).json({ error: 'Error processing stream' });
+                } else {
+                    res.end();
+                }
+            }
+        };
+
+        processStream();
 
     } catch (error) {
         console.error('Server Error:', error);

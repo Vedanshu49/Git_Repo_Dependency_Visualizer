@@ -101,51 +101,72 @@ function parseContentForImports(content, path) {
     const ext = path.split('.').pop();
     const jsLike = new Set(['js', 'jsx', 'ts', 'tsx', 'mjs']);
 
-    if (!jsLike.has(ext)) {
-        return [];
-    }
+    if (jsLike.has(ext)) {
+        try {
+            const ast = babelParser.parse(content, {
+                sourceType: 'module',
+                plugins: ['jsx', 'typescript', 'classProperties', 'optionalChaining', 'nullishCoalescingOperator'],
+                errorRecovery: true,
+            });
 
-    try {
-        const ast = babelParser.parse(content, {
-            sourceType: 'module',
-            plugins: ['jsx', 'typescript', 'classProperties', 'optionalChaining', 'nullishCoalescingOperator'],
-            errorRecovery: true,
-        });
+            const walk = (node) => {
+                if (!node) return;
 
-        const walk = (node) => {
-            if (!node) return;
+                if (node.type === 'ImportDeclaration' && node.source) {
+                    imports.add(node.source.value);
+                }
+                if ((node.type === 'ExportNamedDeclaration' || node.type === 'ExportAllDeclaration') && node.source) {
+                    imports.add(node.source.value);
+                }
+                if (node.type === 'CallExpression' && node.callee.name === 'require' && node.arguments.length > 0 && node.arguments[0].type === 'StringLiteral') {
+                    imports.add(node.arguments[0].value);
+                }
+                if (node.type === 'Import' && node.parent.type === 'CallExpression' && node.parent.arguments.length > 0 && node.parent.arguments[0].type === 'StringLiteral') {
+                    imports.add(node.parent.arguments[0].value);
+                }
 
-            if (node.type === 'ImportDeclaration' && node.source) {
-                imports.add(node.source.value);
-            }
-            if ((node.type === 'ExportNamedDeclaration' || node.type === 'ExportAllDeclaration') && node.source) {
-                imports.add(node.source.value);
-            }
-            if (node.type === 'CallExpression' && node.callee.name === 'require' && node.arguments.length > 0 && node.arguments[0].type === 'StringLiteral') {
-                imports.add(node.arguments[0].value);
-            }
-            if (node.type === 'Import' && node.parent.type === 'CallExpression' && node.parent.arguments.length > 0 && node.parent.arguments[0].type === 'StringLiteral') {
-                 imports.add(node.parent.arguments[0].value);
-            }
-
-            for (const key in node) {
-                if (node.hasOwnProperty(key)) {
-                    const child = node[key];
-                    if (typeof child === 'object' && child !== null) {
-                        if (Array.isArray(child)) {
-                            child.forEach(walk);
-                        } else {
-                            walk(child);
+                for (const key in node) {
+                    if (node.hasOwnProperty(key)) {
+                        const child = node[key];
+                        if (typeof child === 'object' && child !== null) {
+                            if (Array.isArray(child)) {
+                                child.forEach(walk);
+                            } else {
+                                walk(child);
+                            }
                         }
                     }
                 }
+            };
+
+            walk(ast);
+        } catch (e) {
+            console.warn(`Babel parsing error in ${path}: ${e.message}`);
+            // Fallback to regex for JS-like files if AST parsing fails
+            const regex = /import(?:\s+.*\s+from)?\s+['\"](.*?)['\"]|require\(['\"](.*?)['\"]\)/g;
+            let match;
+            while ((match = regex.exec(content)) !== null) {
+                imports.add(match[1] || match[2]);
             }
-        };
-
-        walk(ast);
-
-    } catch (e) {
-        console.warn(`Babel parsing error in ${path}: ${e.message}`);
+        }
+    } else if (ext === 'py') {
+        const regex = /^from\s+([\w.]+)\s+import\s+\w+|^import\s+([\w.]+)/gm;
+        let match;
+        while ((match = regex.exec(content)) !== null) {
+            imports.add((match[1] || match[2]).replace(/\./g, '/'));
+        }
+    } else if (ext === 'java') {
+        const regex = /^import\s+(static\s+)?([\w.]+);/gm;
+        let match;
+        while ((match = regex.exec(content)) !== null) {
+            imports.add(match[2].replace(/\./g, '/'));
+        }
+    } else if (ext === 'php') {
+        const regex = /^use\s+([\w\\]+);/gm;
+        let match;
+        while ((match = regex.exec(content)) !== null) {
+            imports.add(match[1].replace(/\\/g, '/'));
+        }
     }
 
     return Array.from(imports);

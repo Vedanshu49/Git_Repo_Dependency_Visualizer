@@ -119,16 +119,64 @@ function initializeGraphControls() {
     searchInput = document.getElementById('searchInput');
     exportBtn = document.getElementById('exportBtn');
     layoutSwitcher = document.getElementById('layoutSwitcher');
+    const layoutHelpBtn = document.getElementById('layoutHelpBtn');
+    const layoutHelpPopup = document.getElementById('layoutHelpPopup');
+    const layoutHelpTitle = document.getElementById('layoutHelpTitle');
+    const layoutHelpText = document.getElementById('layoutHelpText');
+
+    const layoutInfo = {
+        force: {
+            title: 'Force-Directed Layout',
+            text: 'This layout uses a physics-based simulation to position nodes. It is good for revealing the underlying structure of the graph, such as clusters and central nodes.'
+        },
+        hierarchical: {
+            title: 'Hierarchical Layout',
+            text: 'This layout attempts to arrange the nodes in a tree-like structure, which is useful for visualizing dependencies and flow.'
+        },
+        circular: {
+            title: 'Circular Layout',
+            text: 'This layout arranges the nodes in a circle. It can be useful for identifying patterns in the connections between nodes.'
+        }
+    };
+
+    function updateLayoutHelp(layout) {
+        layoutHelpTitle.textContent = layoutInfo[layout].title;
+        layoutHelpText.textContent = layoutInfo[layout].text;
+    }
+
+    layoutHelpBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isHidden = layoutHelpPopup.classList.contains('hidden');
+        if (isHidden) {
+            const btnRect = layoutHelpBtn.getBoundingClientRect();
+            const containerRect = layoutHelpBtn.parentElement.getBoundingClientRect();
+            layoutHelpPopup.style.left = `${btnRect.left - containerRect.left}px`;
+            layoutHelpPopup.style.top = `${btnRect.bottom - containerRect.top + 10}px`;
+            updateLayoutHelp(layoutSwitcher.value);
+            layoutHelpPopup.classList.remove('hidden');
+        } else {
+            layoutHelpPopup.classList.add('hidden');
+        }
+    });
+
+    document.addEventListener('click', () => {
+        layoutHelpPopup.classList.add('hidden');
+    });
+
+    layoutSwitcher.addEventListener('change', (e) => {
+        currentLayout = e.target.value;
+        renderGraph(nodes, edges);
+        if (!layoutHelpPopup.classList.contains('hidden')) {
+            updateLayoutHelp(currentLayout);
+        }
+    });
+
     document.querySelectorAll('.filter-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', applyFiltersAndRender);
     });
 
     searchInput.addEventListener('input', handleSearch);
     exportBtn.addEventListener('click', handleExport);
-    layoutSwitcher.addEventListener('change', (e) => {
-        currentLayout = e.target.value;
-        renderGraph(nodes, edges);
-    });
 }
 
 function applyFiltersAndRender() {
@@ -372,9 +420,7 @@ async function handleAnalyzeClick(commitSha = null) {
         const repoInfo = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}`);
         const commitsData = await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/commits?per_page=100`);
 
-        if (!commitSha) {
-            displayRepoInfo(repoInfo, commitsData);
-        }
+        displayRepoInfo(repoInfo, commitsData, commitSha);
 
         const latestCommitSha = commitSha || (await apiFetch(`https://api.github.com/repos/${currentOwner}/${currentRepo}/branches/${repoInfo.default_branch}`)).commit.sha;
 
@@ -408,7 +454,7 @@ async function handleAnalyzeClick(commitSha = null) {
 
         for (let i = 0; i < numChunks; i++) {
             const chunk = repoFiles.slice(i * chunkSize, (i + 1) * chunkSize);
-            showMessage(`Analyzing dependencies (Batch ${i + 1} of ${numChunks})...`);
+            showMessage(`Analyzing dependencies (${i + 1} of ${numChunks})...`);
             
             const response = await fetch('/api/analyze', {
                 method: 'POST',
@@ -698,13 +744,38 @@ function highlightNodes(nodeId) {
         return;
     }
 
-    const dependencyIds = new Set(edges.filter(e => e.type === 'dependency' && e.source.id === nodeId).map(e => e.target.id));
-    const dependentIds = new Set(edges.filter(e => e.type === 'dependency' && e.target.id === nodeId).map(e => e.source.id));
-    const connectedIds = new Set([nodeId, ...dependencyIds, ...dependentIds]);
+    const selectedNode = allNodes.find(n => n.id === nodeId);
+    let nodesToHighlight = new Set([nodeId]);
+
+    if (selectedNode && selectedNode.isFolder) {
+        allNodes.forEach(node => {
+            if (node.id.startsWith(nodeId + '/')) {
+                nodesToHighlight.add(node.id);
+            }
+        });
+    }
+
+    const dependencyIds = new Set();
+    const dependentIds = new Set();
+
+    if (!selectedNode.isFolder) {
+        edges.forEach(edge => {
+            if (edge.type === 'dependency') {
+                if (edge.source.id === nodeId) {
+                    dependencyIds.add(edge.target.id);
+                }
+                if (edge.target.id === nodeId) {
+                    dependentIds.add(edge.source.id);
+                }
+            }
+        });
+    }
+
+    const connectedIds = new Set([...nodesToHighlight, ...dependencyIds, ...dependentIds]);
 
     allGraphNodes.classed('selected dependency dependent', false);
     allGraphNodes
-        .classed('selected', d => d.id === nodeId)
+        .classed('selected', d => nodesToHighlight.has(d.id))
         .classed('dependency', d => dependencyIds.has(d.id))
         .classed('dependent', d => dependentIds.has(d.id));
 
@@ -714,7 +785,7 @@ function highlightNodes(nodeId) {
         allEdges.transition(t)
             .style('opacity', d => {
                 if (d.type === 'containment') return 0.1;
-                if (d.source.id === nodeId || d.target.id === nodeId) return 0.9;
+                if (nodesToHighlight.has(d.source.id) || nodesToHighlight.has(d.target.id)) return 0.9;
                 return 0.05;
             });
     } else {
@@ -724,8 +795,8 @@ function highlightNodes(nodeId) {
 
     allEdges.attr("stroke", d => {
         if (d.type === 'containment') return '#5a6675';
-        if (d.source.id === nodeId) return "#2dd4bf";
-        if (d.target.id === nodeId) return "#f472b6";
+        if (nodesToHighlight.has(d.source.id)) return "#2dd4bf";
+        if (nodesToHighlight.has(d.target.id)) return "#f472b6";
         return "#4b5563";
     });
 }
@@ -751,70 +822,57 @@ function applyForceLayout(nodeData, edgeData, node, link, width, height) {
 function applyHierarchicalLayout(nodeData, edgeData, node, link, width, height) {
     const dependencyEdges = edgeData.filter(e => e.type === 'dependency');
 
-    if (dependencyEdges.length === 0) {
-        // Arrange in a grid-like fashion if no dependencies exist
-        const cols = Math.ceil(Math.sqrt(nodeData.length));
-        const cellWidth = Math.max(150, width / cols);
-        const cellHeight = Math.max(100, height / cols);
-        nodeData.forEach((d, i) => {
-            d.x = (i % cols) * cellWidth - (cellWidth * (cols-1))/2;
-            d.y = Math.floor(i / cols) * cellHeight - (cellHeight * (Math.floor((nodeData.length-1)/cols)))/2;
-        });
+    // Topological sort
+    const inDegree = new Map(nodeData.map(d => [d.id, 0]));
+    dependencyEdges.forEach(e => {
+        inDegree.set(e.target.id, inDegree.get(e.target.id) + 1);
+    });
 
-        node.transition().duration(750)
-            .attr("transform", d => `translate(${d.x}, ${d.y})`);
-        link.transition().duration(750).attr("d", d => `M${d.source.x},${d.source.y} L${d.target.x},${d.target.y}`);
+    const queue = nodeData.filter(d => inDegree.get(d.id) === 0);
+    const sorted = [];
+    const positions = new Map();
+
+    while (queue.length > 0) {
+        const u = queue.shift();
+        sorted.push(u);
+        positions.set(u.id, sorted.length - 1);
+
+        dependencyEdges.filter(e => e.source.id === u.id).forEach(e => {
+            const v = e.target;
+            inDegree.set(v.id, inDegree.get(v.id) - 1);
+            if (inDegree.get(v.id) === 0) {
+                queue.push(v);
+            }
+        });
+    }
+
+    if (sorted.length < nodeData.length) {
+        // Cycle detected, fall back to force layout
+        applyForceLayout(nodeData, edgeData, node, link, width, height);
         return;
     }
 
-    const nodeMap = new Map(nodeData.map(d => [d.id, d]));
-    const children = d => dependencyEdges.filter(e => e.source.id === d.id).map(e => e.target);
-    const roots = nodeData.filter(d => !dependencyEdges.some(e => e.target.id === d.id));
-    
-    if(roots.length === 0) {
-        const hasIncoming = new Set(dependencyEdges.map(e => e.target.id));
-        roots.push(...nodeData.filter(d => !hasIncoming.has(d.id)));
-    }
-    if(roots.length === 0 && nodeData.length > 0) roots.push(nodeData[0]);
+    const layerWidth = width / (d3.max(sorted, d => positions.get(d.id)) + 1);
+    const layerHeight = height / 10;
 
-    const hierarchy = d3.hierarchy({ id: 'root', children: roots }, d => d.children ? d.children : children(d));
-    
-    const nodeHeight = 80;
-    const nodeWidth = 180;
-    const treeLayout = d3.tree().nodeSize([nodeHeight, nodeWidth]);
-    
-    treeLayout(hierarchy);
-
-    const descendants = hierarchy.descendants().slice(1); // Exclude the dummy root
-    
-    descendants.forEach(h => {
-        const node = h.data;
-        node.x = h.y;
-        node.y = h.x;
+    nodeData.forEach(d => {
+        d.x = positions.get(d.id) * layerWidth - width / 2 + layerWidth / 2;
+        d.y = (d.inDegree % 10) * layerHeight - height / 2 + layerHeight / 2;
     });
 
     node.transition().duration(750)
-        .attr("transform", d => `translate(${d.x || 0}, ${d.y || 0})`);
-        
+        .attr("transform", d => `translate(${d.x}, ${d.y})`);
+
     link.transition().duration(750)
-        .attr("d", d => {
-             if (d.source && d.target) {
-                 return d3.linkHorizontal()({ source: [d.source.y, d.source.x], target: [d.target.y, d.target.x] });
-             }
-             return "";
-        });
+        .attr("d", d => `M${d.source.x},${d.source.y} L${d.target.x},${d.target.y}`);
 }
 
 function applyCircularLayout(nodeData, edgeData, node, link, width, height) {
-    const minRadius = 100;
-    const nodeSpacing = 80;
-    const requiredCircumference = nodeData.length * nodeSpacing;
-    const calculatedRadius = requiredCircumference / (2 * Math.PI);
-    
-    const radius = Math.max(minRadius, calculatedRadius, Math.min(width, height) / 3);
-    const angleStep = nodeData.length > 1 ? (2 * Math.PI) / nodeData.length : 0;
+    const sortedNodes = nodeData.sort((a, b) => a.outDegree - b.outDegree);
+    const radius = Math.min(width, height) / 2 - 50;
+    const angleStep = (2 * Math.PI) / sortedNodes.length;
 
-    nodeData.forEach((d, i) => {
+    sortedNodes.forEach((d, i) => {
         d.x = radius * Math.cos(i * angleStep);
         d.y = radius * Math.sin(i * angleStep);
     });
