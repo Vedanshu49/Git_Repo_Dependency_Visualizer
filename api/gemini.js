@@ -50,7 +50,11 @@ app.post('/api/gemini', async (req, res) => {
                         break;
                     }
                     const chunk = decoder.decode(value, { stream: true });
-                    res.write(`data: ${chunk}\n\n`);
+                    try {
+                        res.write(`data: ${chunk}\n\n`);
+                    } catch (e) {
+                        console.error("Error writing to stream:", e, "Chunk:", chunk);
+                    }
                 }
             } catch (error) {
                 console.error('Error processing stream:', error);
