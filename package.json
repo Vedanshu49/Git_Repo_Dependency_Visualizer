@@ -1,0 +1,17 @@
+{
+  "name": "git-repo-dependency-visualizer-backend",
+  "version": "1.0.0",
+  "description": "Serverless functions for the Git Repo Dependency Visualizer.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@babel/parser": "^7.24.7",
+    "@vercel/kv": "^1.0.1",
+    "node-fetch": "^2.7.0"
+  }
+}
