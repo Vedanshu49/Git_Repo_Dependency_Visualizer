@@ -303,8 +303,7 @@ async function checkDependencyHealth(dependencies) {
             body: JSON.stringify({ dependencies })
         });
         if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.error || 'Failed to fetch dependency insights.');
+            await handleApiError(response);
         }
         
         const insights = await response.json();
@@ -469,8 +468,7 @@ async function handleAnalyzeClick(commitSha = null) {
             });
 
             if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.details || `Analysis failed on chunk ${i + 1}.`);
+                await handleApiError(response);
             }
 
             const result = await response.json();
@@ -1184,6 +1182,33 @@ async function apiFetch(url) {
 }
 
 
+async function handleApiError(response) {
+    const contentType = response.headers.get("content-type");
+    let errorDetails;
+    if (contentType && contentType.indexOf("application/json") !== -1) {
+        try {
+            const err = await response.json();
+            errorDetails = err.details || err.error || JSON.stringify(err);
+        } catch (e) {
+            errorDetails = "Could not parse JSON error response.";
+        }
+    } else {
+        errorDetails = await response.text();
+    }
+    // Let's try to extract the most useful part of the Vercel error
+    const match = errorDetails.match(/<p class="vc-message-text">(.+?)<\/p>|<div class="vc-function-logs-body">(.+?)<\/div>/s);
+    if (match) {
+        // Prioritize function logs if available
+        const logs = match[2];
+        if (logs) {
+            errorDetails = `Function Logs: ${logs.replace(/<[^>]+>/g, '')}`; // Strip HTML tags from logs
+        } else {
+            errorDetails = match[1];
+        }
+    }
+    throw new Error(errorDetails);
+}
+
 function showMessage(title, message) {
     messageOverlay.classList.remove('hidden');
     const titleElement = messageOverlay.querySelector('h3');
@@ -1238,8 +1263,7 @@ async function callGeminiAPI(prompt, onChunkReceived) {
     });
 
     if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || `API request failed with status ${response.status}`);
+        await handleApiError(response);
     }
 
     const reader = response.body.getReader();
