@@ -11,7 +11,9 @@ module.exports = async (req, res) => {
         return res.status(500).json({ error: 'API key not configured on the server.' });
     }
 
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:streamGenerateContent?key=${geminiApiKey}`;
+    // Corrected model name to a valid one.
+    const model = 'gemini-1.5-flash'; 
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${geminiApiKey}`;
 
     try {
         const geminiResponse = await fetch(apiUrl, {
@@ -23,9 +25,21 @@ module.exports = async (req, res) => {
         });
 
         if (!geminiResponse.ok) {
-            const errorData = await geminiResponse.json();
+            let errorData;
+            const errorText = await geminiResponse.text();
+            try {
+                // Try to parse as JSON, as the API usually returns JSON errors
+                errorData = JSON.parse(errorText);
+            } catch (e) {
+                // If it's not JSON, use the raw text. This happens with some network errors or HTML responses.
+                errorData = { error: { message: errorText } };
+            }
             console.error('Gemini API Error:', errorData);
-            return res.status(geminiResponse.status).json(errorData);
+            // Ensure we send a status and a JSON object
+            return res.status(geminiResponse.status).json({ 
+                error: 'Gemini API Error', 
+                details: errorData
+            });
         }
 
         // Set headers for streaming
@@ -33,12 +47,11 @@ module.exports = async (req, res) => {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
 
-        // Process the stream and forward it in the desired format
-        const reader = geminiResponse.body;
-        reader.pipe(res);
+        // Process the stream and forward it
+        geminiResponse.body.pipe(res);
 
     } catch (error) {
         console.error('Server Error:', error);
-        res.status(500).json({ error: 'An internal server error occurred.' });
+        res.status(500).json({ error: 'An internal server error occurred.', details: error.message });
     }
 };
