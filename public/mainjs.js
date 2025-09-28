@@ -1185,25 +1185,34 @@ async function apiFetch(url) {
 async function handleApiError(response) {
     const contentType = response.headers.get("content-type");
     let errorDetails;
+
     if (contentType && contentType.indexOf("application/json") !== -1) {
         try {
             const err = await response.json();
-            errorDetails = err.details || err.error || JSON.stringify(err);
+            // Dig for the real error message from the structured JSON
+            if (err.details && err.details.error && err.details.error.message) {
+                errorDetails = err.details.error.message;
+            } else if (err.details) {
+                errorDetails = typeof err.details === 'string' ? err.details : JSON.stringify(err.details);
+            } else if (err.error) {
+                errorDetails = typeof err.error === 'string' ? err.error : JSON.stringify(err.error);
+            } else {
+                errorDetails = JSON.stringify(err);
+            }
         } catch (e) {
             errorDetails = "Could not parse JSON error response.";
         }
     } else {
         errorDetails = await response.text();
-    }
-    // Let's try to extract the most useful part of the Vercel error
-    const match = errorDetails.match(/<p class="vc-message-text">(.+?)<\/p>|<div class="vc-function-logs-body">(.+?)<\/div>/s);
-    if (match) {
-        // Prioritize function logs if available
-        const logs = match[2];
-        if (logs) {
-            errorDetails = `Function Logs: ${logs.replace(/<[^>]+>/g, '')}`; // Strip HTML tags from logs
-        } else {
-            errorDetails = match[1];
+        // For non-JSON (likely HTML error pages), try to extract the core message
+        const match = errorDetails.match(/<p class="vc-message-text">(.+?)<\/p>|<div class="vc-function-logs-body">(.+?)<\/div>/s);
+        if (match) {
+            const logs = match[2];
+            if (logs) {
+                errorDetails = `Function Logs: ${logs.replace(/<[^>]+>/g, '')}`;
+            } else {
+                errorDetails = match[1];
+            }
         }
     }
     throw new Error(errorDetails);
