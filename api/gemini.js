@@ -13,7 +13,7 @@ module.exports = async (req, res) => {
 
     // Corrected model name to a valid one.
     const model = 'gemini-1.5-flash'; 
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${geminiApiKey}`;
+    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:streamGenerateContent?key=${geminiApiKey}`;
 
     try {
         const geminiResponse = await fetch(apiUrl, {
