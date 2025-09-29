@@ -47,8 +47,26 @@ module.exports = async (req, res) => {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
 
-        // Process the stream and forward it
-        geminiResponse.body.pipe(res);
+        // Process the stream and forward it, formatting for SSE
+        const reader = geminiResponse.body;
+        const decoder = new TextDecoder();
+        let buffer = '';
+        reader.on('data', (chunk) => {
+            buffer += decoder.decode(chunk, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep the last partial line
+            for (const line of lines) {
+                if (line.trim()) {
+                    res.write(`data: ${line}\n\n`);
+                }
+            }
+        });
+        reader.on('end', () => {
+            if (buffer.trim()) {
+                res.write(`data: ${buffer}\n\n`);
+            }
+            res.end();
+        });
 
     } catch (error) {
         console.error('Server Error:', error);

@@ -452,13 +452,3 @@ body {
 #layoutHelpBtn {
     position: relative;
 }
-
-#layoutHelpPopup {
-    width: 250px;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    margin-bottom: 10px;
-    background-color: #1f2937;
-    overflow-wrap: break-word;
-}
