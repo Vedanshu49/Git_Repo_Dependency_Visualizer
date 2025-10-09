@@ -150,19 +150,19 @@ function parseContentForImports(content, path) {
             }
         }
     } else if (ext === 'py') {
-        const regex = /^from\s+([\w.]+)\s+import\s+\w+|^import\s+([\w.]+)/gm;
+        const regex = /^\s*(?:from\s+([\w.]+)\s+import\s+|import\s+([\w.]+))/gm;
         let match;
         while ((match = regex.exec(content)) !== null) {
             imports.add((match[1] || match[2]).replace(/\./g, '/'));
         }
     } else if (ext === 'java') {
-        const regex = /^import\s+(static\s+)?([\w.]+);/gm;
+        const regex = /^import\s+(static\s+)?([\w.]+?(?:\.\*)?);/gm;
         let match;
         while ((match = regex.exec(content)) !== null) {
-            imports.add(match[2].replace(/\./g, '/'));
+            imports.add(match[2].replace(/\./g, '/').replace(/\*$/, '*'));
         }
     } else if (ext === 'php') {
-        const regex = /^use\s+([\w\\]+);/gm;
+        const regex = /^use\s+([\w\\]+)(?:\s+as\s+\w+)?;/gm;
         let match;
         while ((match = regex.exec(content)) !== null) {
             imports.add(match[1].replace(/\\/g, '/'));

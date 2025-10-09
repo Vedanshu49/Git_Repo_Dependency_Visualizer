@@ -53,12 +53,26 @@ module.exports = async (req, res) => {
         let buffer = '';
         reader.on('data', (chunk) => {
             buffer += decoder.decode(chunk, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop(); // Keep the last partial line
-            for (const line of lines) {
-                if (line.trim()) {
-                    res.write(`data: ${line}\n\n`);
+            // Process as many complete JSON objects as we can from the buffer
+            let start = buffer.indexOf('{');
+            let end = buffer.indexOf('}');
+            while (start !== -1 && end !== -1 && start < end) {
+                const jsonStr = buffer.substring(start, end + 1);
+                try {
+                    const json = JSON.parse(jsonStr);
+                    const part = json.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (part) {
+                        // Write only the text content to the stream, formatted for SSE
+                        res.write(`data: ${JSON.stringify({ text: part })}\n\n`);
+                    }
+                } catch (e) {
+                    // In case of a parsing error, log it but don't crash
+                    console.error("Failed to parse JSON chunk:", e);
                 }
+                // Remove the processed part from the buffer
+                buffer = buffer.slice(end + 1);
+                start = buffer.indexOf('{');
+                end = buffer.indexOf('}');
             }
         });
         reader.on('end', () => {

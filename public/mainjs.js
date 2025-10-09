@@ -442,7 +442,10 @@ async function handleAnalyzeClick(commitSha = null) {
 
         showMessage(`File tree loaded! Preparing to analyze ${repoFiles.length} files.`);
         
-        if (repoFiles.length > 1500) { // Increased limit
+        if (repoFiles.length > 1000) { // Lowered limit for a stronger recommendation
+            const message = `This repository contains ${repoFiles.length} files. Analysis may be slow or fail due to GitHub API rate limits. Using a GitHub Personal Access Token is strongly recommended.`;
+            showMessage('Large Repository Detected', message);
+        } else if (repoFiles.length > 200) { 
             showMessage(`Warning: Found ${repoFiles.length} files. This might take a while...`, false);
         }
 
@@ -1292,7 +1295,7 @@ async function callGeminiAPI(prompt, onChunkReceived) {
                 try {
                     const jsonStr = line.substring(6);
                     const json = JSON.parse(jsonStr);
-                    const part = json.candidates?.[0]?.content?.parts?.[0]?.text;
+                    const part = json.text; // The backend now sends a {text: "..."} object
                     if (part) {
                         resultText += part;
                         onChunkReceived(part); // Callback to update UI
