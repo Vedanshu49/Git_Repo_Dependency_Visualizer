@@ -1281,31 +1281,57 @@ async function callGeminiAPI(prompt, onChunkReceived) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let resultText = '';
+    let buffer = '';
 
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        // Each chunk might contain multiple JSON objects or partial objects
-        // We need to parse them carefully.
-        // The Gemini API for streaming often sends data in the format: data: {json}
-        chunk.split('\n').forEach(line => {
+        buffer += decoder.decode(value, { stream: true });
+        
+        let newlineIndex;
+        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+            const line = buffer.substring(0, newlineIndex).trim();
+            buffer = buffer.substring(newlineIndex + 1);
+
             if (line.startsWith('data: ')) {
                 try {
                     const jsonStr = line.substring(6);
-                    const json = JSON.parse(jsonStr);
-                    const part = json.text; // The backend now sends a {text: "..."} object
-                    if (part) {
-                        resultText += part;
-                        onChunkReceived(part); // Callback to update UI
+                    if (jsonStr) {
+                        const json = JSON.parse(jsonStr);
+                        const part = json.text;
+                        if (part) {
+                            resultText += part;
+                            onChunkReceived(part);
+                        }
                     }
                 } catch (e) {
                     console.error("Error parsing stream chunk:", e, "Chunk:", line);
                 }
             }
-        });
+        }
     }
+
+    // Process any remaining data in the buffer
+    if (buffer.length > 0) {
+        const line = buffer.trim();
+        if (line.startsWith('data: ')) {
+            try {
+                const jsonStr = line.substring(6);
+                if (jsonStr) {
+                    const json = JSON.parse(jsonStr);
+                    const part = json.text;
+                    if (part) {
+                        resultText += part;
+                        onChunkReceived(part);
+                    }
+                }
+            } catch (e) {
+                console.error("Error parsing final stream chunk:", e, "Chunk:", line);
+            }
+        }
+    }
+
     return resultText;
 }
 

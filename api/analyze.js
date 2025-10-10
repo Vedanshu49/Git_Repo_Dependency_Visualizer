@@ -2,56 +2,131 @@ const fetch = require('node-fetch');
 const { kv } = require('@vercel/kv');
 const crypto = require('crypto');
 const babelParser = require('@babel/parser');
+const Parser = require('tree-sitter');
+const Python = require('tree-sitter-python');
+const Java = require('tree-sitter-java');
+const PHP = require('tree-sitter-php');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const StreamZip = require('node-stream-zip');
 
 function hash(str) {
     return crypto.createHash('sha256').update(str).digest('hex');
 }
 
-// --- Main Handler ---
+// --- Main Handler (Refactored for Zip Download) ---
 
 module.exports = async (req, res) => {
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
-    try {
-        const { owner, repo, files, token, latestCommit } = req.body;
+    const { owner, repo, token, latestCommit } = req.body;
 
-        if (!owner || !repo || !files || !Array.isArray(files) || !latestCommit) {
-            return res.status(400).json({ error: 'Missing required parameters.' });
-        }
+    if (!owner || !repo || !latestCommit) {
+        return res.status(400).json({ error: 'Missing required parameters: owner, repo, latestCommit.' });
+    }
 
-        const isProduction = process.env.VERCEL_ENV === 'production';
-        const filePathsString = files.map(f => f.path).join(',');
-        const cacheKey = `deps:${owner}-${repo}-${latestCommit}-${hash(filePathsString)}`;
+    const isProduction = process.env.VERCEL_ENV === 'production';
+    // Note: Caching key might need adjustment if `files` is no longer sent.
+    // Using commit SHA is a good way to ensure freshness.
+    const cacheKey = `deps-zip:${owner}-${repo}-${latestCommit}`;
 
-        if (isProduction) {
+    if (isProduction) {
+        try {
             const cachedDependencies = await kv.get(cacheKey);
             if (cachedDependencies) {
                 return res.status(200).json({ dependencies: cachedDependencies, fromCache: true });
             }
+        } catch (e) {
+            console.warn("KV cache read error:", e.message);
+        }
+    }
+
+    const zipUrl = `https://api.github.com/repos/${owner}/${repo}/zipball/${latestCommit}`;
+    const tempFilePath = path.join(os.tmpdir(), `repo-${owner}-${repo}-${latestCommit}.zip`);
+    
+    try {
+        // 1. Download the repository zipball
+        const headers = { Accept: 'application/vnd.github.v3+json' };
+        if (token) headers['Authorization'] = `token ${token}`;
+
+        const response = await fetch(zipUrl, { headers });
+        if (!response.ok) {
+            throw new Error(`Failed to download repository: ${response.statusText}`);
         }
 
-        // Fetch file tree and alias map here
-        const treeData = await apiFetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${latestCommit}?recursive=1`, token);
-        const allFilePaths = treeData.tree.map(f => f.path);
+        await new Promise((resolve, reject) => {
+            const fileStream = fs.createWriteStream(tempFilePath);
+            response.body.pipe(fileStream);
+            response.body.on("error", reject);
+            fileStream.on("finish", resolve);
+        });
+
+        // 2. Process the zip file
+        const zip = new StreamZip.async({ file: tempFilePath });
+        const entries = await zip.entries();
+        const allDependencies = [];
+
+        // Find the root directory within the zip
+        const rootDir = Object.keys(entries)[0].split('/')[0] + '/';
+        
+        const allFilePaths = Object.keys(entries)
+            .map(name => name.substring(rootDir.length))
+            .filter(name => !name.endsWith('/') && name.length > 0);
+        
+        const filePathsSet = new Set(allFilePaths);
         const aliasMap = await getAliasMap(owner, repo, token, allFilePaths);
 
-        const dependencies = await analyzeFileDependencies(owner, repo, files, token, allFilePaths, aliasMap || {});
-        
-        if (isProduction) {
-            await kv.set(cacheKey, dependencies, { ex: 3600 }); // Cache for 1 hour
+        // 3. Analyze files from the zip
+        for (const entry of Object.values(entries)) {
+            if (entry.isDirectory) continue;
+
+            const currentPath = entry.name.substring(rootDir.length);
+            if (!currentPath) continue;
+
+            try {
+                const fileContent = await zip.entryData(entry.name);
+                const foundImports = parseContentForImports(fileContent.toString('utf-8'), currentPath);
+
+                foundImports.forEach(imp => {
+                    const targetPath = resolvePath(currentPath, imp, filePathsSet, aliasMap);
+                    if (targetPath && filePathsSet.has(targetPath)) {
+                        allDependencies.push({ from: currentPath, to: targetPath });
+                    }
+                });
+            } catch (error) {
+                console.warn(`Could not analyze file from zip: ${currentPath}`, error.message);
+            }
         }
 
-        res.status(200).json({ dependencies, fromCache: false });
+        await zip.close();
+
+        // 4. Cache and return the result
+        if (isProduction) {
+            try {
+                await kv.set(cacheKey, allDependencies, { ex: 3600 }); // Cache for 1 hour
+            } catch(e) {
+                console.warn("KV cache write error:", e.message);
+            }
+        }
+
+        res.status(200).json({ dependencies: allDependencies, fromCache: false });
 
     } catch (error) {
-        console.error('Error in /api/analyze:', error);
+        console.error('Error in /api/analyze (zip method):', error);
         res.status(500).json({ error: 'Internal Server Error', details: error.message });
+    } finally {
+        // 5. Clean up the temporary file
+        if (fs.existsSync(tempFilePath)) {
+            fs.unlinkSync(tempFilePath);
+        }
     }
 };
 
-// --- GitHub API Fetch ---
+
+// --- GitHub API Fetch (for non-zip operations) ---
 
 async function apiFetch(url, token) {
     const headers = { 'Accept': 'application/vnd.github.v3+json' };
@@ -66,35 +141,7 @@ async function apiFetch(url, token) {
     return response.json();
 }
 
-// --- Analysis Logic ---
-
-async function analyzeFileDependencies(owner, repo, files, token, allFilePaths, aliasMap) {
-    const allDependencies = [];
-    const filePathsSet = new Set(allFilePaths);
-
-    const promises = files.map(async (file) => {
-        if (!file || !file.path) return;
-        try {
-            const contentResponse = await apiFetch(`https://api.github.com/repos/${owner}/${repo}/contents/${file.path}`, token);
-            if (contentResponse.content) {
-                const fileContent = Buffer.from(contentResponse.content, 'base64').toString('utf-8');
-                const foundImports = parseContentForImports(fileContent, file.path);
-
-                foundImports.forEach(imp => {
-                    const targetPath = resolvePath(file.path, imp, filePathsSet, aliasMap);
-                    if (targetPath && filePathsSet.has(targetPath)) {
-                        allDependencies.push({ from: file.path, to: targetPath });
-                    }
-                });
-            }
-        } catch (error) {
-            console.warn(`Could not analyze file: ${file.path}`, error.message);
-        }
-    });
-
-    await Promise.all(promises);
-    return allDependencies;
-}
+// --- Analysis Logic (Parser) ---
 
 function parseContentForImports(content, path) {
     const imports = new Set();
@@ -142,30 +189,44 @@ function parseContentForImports(content, path) {
             walk(ast);
         } catch (e) {
             console.warn(`Babel parsing error in ${path}: ${e.message}`);
-            // Fallback to regex for JS-like files if AST parsing fails
             const regex = /import(?:\s+.*\s+from)?\s+['\"](.*?)['\"]|require\(['\"](.*?)['\"]\)/g;
             let match;
             while ((match = regex.exec(content)) !== null) {
                 imports.add(match[1] || match[2]);
             }
         }
-    } else if (ext === 'py') {
-        const regex = /^\s*(?:from\s+([\w.]+)\s+import\s+|import\s+([\w.]+))/gm;
-        let match;
-        while ((match = regex.exec(content)) !== null) {
-            imports.add((match[1] || match[2]).replace(/\./g, '/'));
-        }
-    } else if (ext === 'java') {
-        const regex = /^import\s+(static\s+)?([\w.]+?(?:\.\*)?);/gm;
-        let match;
-        while ((match = regex.exec(content)) !== null) {
-            imports.add(match[2].replace(/\./g, '/').replace(/\*$/, '*'));
-        }
-    } else if (ext === 'php') {
-        const regex = /^use\s+([\w\\]+)(?:\s+as\s+\w+)?;/gm;
-        let match;
-        while ((match = regex.exec(content)) !== null) {
-            imports.add(match[1].replace(/\\/g, '/'));
+    } else {
+        const parser = new Parser();
+        let query, postProcess;
+
+        try {
+            if (ext === 'py') {
+                parser.setLanguage(Python);
+                query = new Parser.Query(Python, `
+                  (import_statement name: (dotted_name) @p)
+                  (import_from_statement module_name: (dotted_name) @p)
+                  (import_from_statement module_name: (relative_import) @p)
+                `);
+                postProcess = (text) => text.replace(/\./g, '/');
+            } else if (ext === 'java') {
+                parser.setLanguage(Java);
+                query = new Parser.Query(Java, `(import_declaration) @p`);
+                postProcess = (text) => text.replace(/^import\s+(static\s+)?/, '').replace(/;/,'').trim().replace(/\./g, '/');
+            } else if (ext === 'php') {
+                parser.setLanguage(PHP);
+                query = new Parser.Query(PHP, `(use_declaration name: (_) @p)`);
+                postProcess = (text) => text.replace(/\\/g, '/');
+            }
+
+            if (query) {
+                const tree = parser.parse(content);
+                const captures = query.captures(tree.rootNode);
+                for (const { node } of captures) {
+                    imports.add(postProcess(node.text));
+                }
+            }
+        } catch (e) {
+            console.warn(`Tree-sitter parsing error in ${path}: ${e.message}`);
         }
     }
 
@@ -185,7 +246,6 @@ function resolvePath(basePath, importPath, filePathsSet, aliasMap) {
         return null;
     };
 
-    // 1. Resolve Aliases
     for (const [alias, realPath] of Object.entries(aliasMap)) {
         if (importPath.startsWith(alias)) {
             const resolvedImport = importPath.replace(alias, realPath);
@@ -194,7 +254,6 @@ function resolvePath(basePath, importPath, filePathsSet, aliasMap) {
         }
     }
 
-    // 2. Resolve Relative Paths
     if (importPath.startsWith('./') || importPath.startsWith('../')) {
         const baseDir = basePath.substring(0, basePath.lastIndexOf('/'));
         const path = require('path');
@@ -204,11 +263,10 @@ function resolvePath(basePath, importPath, filePathsSet, aliasMap) {
         if (checked) return checked;
     }
 
-    // 3. Resolve Bare Paths (node_modules, etc.) - we can't do this well without a package.json, so we just check root
     const checked = checkPath(importPath);
     if (checked) return checked;
 
-    return importPath; // Return original if not resolved
+    return importPath;
 }
 
 async function getAliasMap(owner, repo, token, allFilePaths) {
@@ -218,7 +276,6 @@ async function getAliasMap(owner, repo, token, allFilePaths) {
     try {
         const contentResponse = await apiFetch(`https://api.github.com/repos/${owner}/${repo}/contents/${configPath}`, token);
         const configContent = Buffer.from(contentResponse.content, 'base64').toString('utf-8');
-        // Remove comments from JSON before parsing
         const jsonContent = configContent.replace(/\/\/[^\n]*/g, '').replace(/\/[\s\S]*?\*\//g, '');
         const config = JSON.parse(jsonContent);
         const paths = config.compilerOptions?.paths;
@@ -228,7 +285,6 @@ async function getAliasMap(owner, repo, token, allFilePaths) {
         const aliasMap = {};
         for (const [alias, realPaths] of Object.entries(paths)) {
             if (Array.isArray(realPaths) && realPaths.length > 0) {
-                // e.g., "@/*": ["src/*"] -> {"@": "src"}
                 const key = alias.replace('/*', '');
                 const value = realPaths[0].replace('/*', '');
                 aliasMap[key] = value;
@@ -237,6 +293,6 @@ async function getAliasMap(owner, repo, token, allFilePaths) {
         return aliasMap;
     } catch (error) {
         console.warn('Could not parse alias config:', error);
-        return {}; // Return empty map if parsing fails
+        return {};
     }
 }
