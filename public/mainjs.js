@@ -1322,9 +1322,9 @@ async function callGeminiAPI(prompt, onChunkReceived) {
             try {
                 const jsonStr = line.substring(6);
                 if (jsonStr) {
-                    console.log("[AI] Received final data chunk:", jsonStr);
+                    // console.log("[AI] Received final data chunk:", jsonStr); // Too noisy
                     const json = JSON.parse(jsonStr);
-                    const part = json.text;
+                    const part = json.candidates?.[0]?.content?.parts?.[0]?.text;
                     if (part) {
                         resultText += part;
                         onChunkReceived(part);
