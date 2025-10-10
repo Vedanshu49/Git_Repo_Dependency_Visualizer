@@ -1335,6 +1335,8 @@ async function callGeminiAPI(prompt, onChunkReceived) {
         }
     }
     console.log("[AI] Final assembled text:", resultText);
+        // Print the response to the console for debugging
+        console.log("[AI] Response to display in UI:", resultText);
     return resultText;
 }
 
