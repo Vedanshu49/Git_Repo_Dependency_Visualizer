@@ -449,34 +449,25 @@ async function handleAnalyzeClick(commitSha = null) {
             showMessage(`Warning: Found ${repoFiles.length} files. This might take a while...`, false);
         }
 
-        // --- Backend Analysis via Chunking ---
-        dependencies = [];
-        const chunkSize = 20;
-        const numChunks = Math.ceil(repoFiles.length / chunkSize);
+        // --- Backend Analysis ---
+        showMessage('Analyzing dependencies...');
+        const response = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                owner: currentOwner,
+                repo: currentRepo,
+                token: githubTokenInput.value.trim(),
+                latestCommit: latestCommitSha
+            })
+        });
 
-        for (let i = 0; i < numChunks; i++) {
-            const chunk = repoFiles.slice(i * chunkSize, (i + 1) * chunkSize);
-            showMessage(`Analyzing dependencies (${i + 1} of ${numChunks})...`);
-            
-            const response = await fetch('/api/analyze', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    owner: currentOwner,
-                    repo: currentRepo,
-                    files: chunk,
-                    token: githubTokenInput.value.trim(),
-                    latestCommit: latestCommitSha
-                })
-            });
-
-            if (!response.ok) {
-                await handleApiError(response);
-            }
-
-            const result = await response.json();
-            dependencies.push(...result.dependencies);
+        if (!response.ok) {
+            await handleApiError(response);
         }
+
+        const result = await response.json();
+        dependencies = result.dependencies;
         // --- End Backend Analysis ---
 
 
@@ -1260,6 +1251,9 @@ function simpleMarkdownToHtml(markdown) {
 
 // --- Gemini API Functions ---
 async function callGeminiAPI(prompt, onChunkReceived) {
+    console.log("[AI] Calling Gemini API...");
+    console.log("[AI] Prompt:", prompt);
+
     const apiUrl = '/api/gemini';
 
     const payload = {
@@ -1274,7 +1268,10 @@ async function callGeminiAPI(prompt, onChunkReceived) {
         body: JSON.stringify(payload)
     });
 
+    console.log("[AI] Response Status:", response.status);
+
     if (!response.ok) {
+        console.error("[AI] API call failed.");
         await handleApiError(response);
     }
 
@@ -1283,9 +1280,13 @@ async function callGeminiAPI(prompt, onChunkReceived) {
     let resultText = '';
     let buffer = '';
 
+    console.log("[AI] Starting to read stream...");
     while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+            console.log("[AI] Stream finished.");
+            break;
+        }
 
         buffer += decoder.decode(value, { stream: true });
         
@@ -1298,6 +1299,7 @@ async function callGeminiAPI(prompt, onChunkReceived) {
                 try {
                     const jsonStr = line.substring(6);
                     if (jsonStr) {
+                        console.log("[AI] Received data chunk:", jsonStr);
                         const json = JSON.parse(jsonStr);
                         const part = json.text;
                         if (part) {
@@ -1306,7 +1308,7 @@ async function callGeminiAPI(prompt, onChunkReceived) {
                         }
                     }
                 } catch (e) {
-                    console.error("Error parsing stream chunk:", e, "Chunk:", line);
+                    console.error("[AI] Error parsing stream chunk:", e, "Chunk:", line);
                 }
             }
         }
@@ -1319,6 +1321,7 @@ async function callGeminiAPI(prompt, onChunkReceived) {
             try {
                 const jsonStr = line.substring(6);
                 if (jsonStr) {
+                    console.log("[AI] Received final data chunk:", jsonStr);
                     const json = JSON.parse(jsonStr);
                     const part = json.text;
                     if (part) {
@@ -1327,11 +1330,11 @@ async function callGeminiAPI(prompt, onChunkReceived) {
                     }
                 }
             } catch (e) {
-                console.error("Error parsing final stream chunk:", e, "Chunk:", line);
+                console.error("[AI] Error parsing final stream chunk:", e, "Chunk:", line);
             }
         }
     }
-
+    console.log("[AI] Final assembled text:", resultText);
     return resultText;
 }
 

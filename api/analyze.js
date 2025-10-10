@@ -236,7 +236,8 @@ function parseContentForImports(content, path) {
 function resolvePath(basePath, importPath, filePathsSet, aliasMap) {
     const possibleExtensions = [
         '', '.js', '.jsx', '.ts', '.tsx', '.mjs', '.json',
-        '/index.js', '/index.jsx', '/index.ts', '/index.tsx'
+        '/index.js', '/index.jsx', '/index.ts', '/index.tsx',
+        '.py', '.java', '.php'
     ];
 
     const checkPath = (path) => {
