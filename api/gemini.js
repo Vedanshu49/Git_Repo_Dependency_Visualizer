@@ -11,8 +11,8 @@ module.exports = async (req, res) => {
         return res.status(500).json({ error: 'API key not configured on the server.' });
     }
 
-    const model = 'gemini-2.5-flash'; // Using a standard and reliable model
-    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:streamGenerateContent?key=${geminiApiKey}`;
+    const model = 'gemini-1.5-flash'; // Corrected model name
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${geminiApiKey}`;
 
     try {
         const geminiResponse = await fetch(apiUrl, {
@@ -43,12 +43,62 @@ module.exports = async (req, res) => {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
 
-        // Directly pipe the response from Gemini to the client
-        geminiResponse.body.pipe(res);
+        // Process the stream from Gemini and forward it in the correct SSE format
+        const reader = geminiResponse.body;
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        reader.on('data', (chunk) => {
+            buffer += decoder.decode(chunk, { stream: true });
+            
+            // The response from the Gemini API is a stream of JSON objects.
+            // They are usually newline-delimited.
+            let newlineIndex;
+            while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+                const line = buffer.substring(0, newlineIndex).trim();
+                buffer = buffer.substring(newlineIndex + 1);
+
+                if (line.startsWith('{')) {
+                    try {
+                        const parsed = JSON.parse(line.replace(/,$/, ''));
+                        if (parsed.candidates && parsed.candidates[0].content && parsed.candidates[0].content.parts[0]) {
+                            const text = parsed.candidates[0].content.parts[0].text;
+                            // The frontend expects a JSON object with a 'text' property.
+                            res.write(`data: ${JSON.stringify({ text })}\n\n`);
+                        }
+                    } catch (e) {
+                        // Ignore lines that are not valid JSON
+                    }
+                }
+            }
+        });
+
+        reader.on('end', () => {
+            // Process any remaining data in the buffer
+            if (buffer.trim().startsWith('{')) {
+                try {
+                    const parsed = JSON.parse(buffer.trim().replace(/,$/, ''));
+                    if (parsed.candidates && parsed.candidates[0].content && parsed.candidates[0].content.parts[0]) {
+                        const text = parsed.candidates[0].content.parts[0].text;
+                        res.write(`data: ${JSON.stringify({ text })}\n\n`);
+                    }
+                } catch (e) {
+                    // Ignore
+                }
+            }
+            res.end();
+        });
+
+        reader.on('error', (err) => {
+            console.error('Error from Gemini stream:', err);
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Stream error' });
+            }
+            res.end();
+        });
 
     } catch (error) {
         console.error('Server Error in Gemini endpoint:', error);
-        // If the response hasn't been sent yet, send an error
         if (!res.headersSent) {
             res.status(500).json({ error: 'An internal server error occurred.', details: error.message });
         }
