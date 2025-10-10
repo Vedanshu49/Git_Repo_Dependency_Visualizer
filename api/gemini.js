@@ -11,7 +11,7 @@ module.exports = async (req, res) => {
         return res.status(500).json({ error: 'API key not configured on the server.' });
     }
 
-    const model = 'gemini-1.5-flash'; // Using a standard and reliable model
+    const model = 'gemini-2.5-flash'; // Using a standard and reliable model
     const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:streamGenerateContent?key=${geminiApiKey}`;
 
     try {
