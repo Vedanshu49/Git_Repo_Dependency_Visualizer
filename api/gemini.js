@@ -11,8 +11,8 @@ module.exports = async (req, res) => {
         return res.status(500).json({ error: 'API key not configured on the server.' });
     }
 
-    const model = 'gemini-1.5-flash'; // Corrected model name
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${geminiApiKey}`;
+    const model = 'gemini-2.5-flash'; // Corrected model name
+    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:streamGenerateContent?key=${geminiApiKey}`;
 
     try {
         const geminiResponse = await fetch(apiUrl, {
@@ -59,16 +59,8 @@ module.exports = async (req, res) => {
                 buffer = buffer.substring(newlineIndex + 1);
 
                 if (line.startsWith('{')) {
-                    try {
-                        const parsed = JSON.parse(line.replace(/,$/, ''));
-                        if (parsed.candidates && parsed.candidates[0].content && parsed.candidates[0].content.parts[0]) {
-                            const text = parsed.candidates[0].content.parts[0].text;
-                            // The frontend expects a JSON object with a 'text' property.
-                            res.write(`data: ${JSON.stringify({ text })}\n\n`);
-                        }
-                    } catch (e) {
-                        // Ignore lines that are not valid JSON
-                    }
+                    // Forward the raw JSON chunk from Gemini to the frontend
+                    res.write(`data: ${line}\n\n`);
                 }
             }
         });
@@ -76,15 +68,8 @@ module.exports = async (req, res) => {
         reader.on('end', () => {
             // Process any remaining data in the buffer
             if (buffer.trim().startsWith('{')) {
-                try {
-                    const parsed = JSON.parse(buffer.trim().replace(/,$/, ''));
-                    if (parsed.candidates && parsed.candidates[0].content && parsed.candidates[0].content.parts[0]) {
-                        const text = parsed.candidates[0].content.parts[0].text;
-                        res.write(`data: ${JSON.stringify({ text })}\n\n`);
-                    }
-                } catch (e) {
-                    // Ignore
-                }
+                // Forward the final raw JSON chunk
+                res.write(`data: ${buffer.trim()}\n\n`);
             }
             res.end();
         });
