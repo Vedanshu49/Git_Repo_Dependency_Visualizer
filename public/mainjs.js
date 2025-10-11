@@ -1250,6 +1250,31 @@ function simpleMarkdownToHtml(markdown) {
 }
 
 // --- Gemini API Functions ---
+// --- AI Repo Overview Generation ---
+async function handleGenerateRepoOverview() {
+    const btn = document.getElementById('generateRepoOverviewBtn');
+    btn.disabled = true;
+    btn.innerHTML = 'Generating...';
+    aiModalTitle.textContent = 'AI-Powered Repository Overview';
+    aiModalResult.innerHTML = '<div class="custom-loader mx-auto"></div>';
+    openModal(aiModal);
+
+    try {
+        const fileList = repoFiles.map(f => f.path).join('\n');
+        const prompt = `Based on this list of file paths from a software repository, provide a high-level overview of the project's likely purpose and architecture. Format the response using Markdown. What kind of application is this? What technologies are likely being used?\n\nFile list:\n${fileList}`;
+        aiModalResult.innerHTML = '';
+        let fullResponse = '';
+        await callGeminiAPI(prompt, (chunk) => {
+            fullResponse += chunk;
+            aiModalResult.innerHTML = simpleMarkdownToHtml(fullResponse);
+        });
+    } catch (error) {
+        aiModalResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Generate Repo Overview';
+    }
+}
 async function callGeminiAPI(prompt, onChunkReceived) {
     console.log("[AI] Calling Gemini API...");
     console.log("[AI] Prompt:", prompt);
