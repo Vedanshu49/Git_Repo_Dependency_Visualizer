@@ -49,36 +49,40 @@ module.exports = async (req, res) => {
 
         reader.on('data', (chunk) => {
             buffer += decoder.decode(chunk, { stream: true });
-
-            let openBraces = 0;
-            let jsonStart = -1;
-            let i = 0;
-
-            while (i < buffer.length) {
-                if (buffer[i] === '{') {
-                    if (openBraces === 0) {
-                        jsonStart = i;
+            let start = buffer.indexOf('{');
+            while (start !== -1) {
+                let braceCount = 0;
+                let end = -1;
+                for (let i = start; i < buffer.length; i++) {
+                    if (buffer[i] === '{') {
+                        braceCount++;
+                    } else if (buffer[i] === '}') {
+                        braceCount--;
                     }
-                    openBraces++;
-                } else if (buffer[i] === '}') {
-                    if (openBraces > 0) {
-                        openBraces--;
-                        if (openBraces === 0 && jsonStart !== -1) {
-                            const jsonObject = buffer.substring(jsonStart, i + 1);
-                            try {
-                                // Verify it's valid JSON before sending
-                                JSON.parse(jsonObject);
-                                res.write(`data: ${jsonObject}\n\n`);
-                                buffer = buffer.substring(i + 1);
-                                jsonStart = -1;
-                                i = -1; // Restart scan from the beginning of the new buffer
-                            } catch (e) {
-                                // Invalid JSON, continue scanning
-                            }
-                        }
+                    if (braceCount === 0) {
+                        end = i;
+                        break;
                     }
                 }
-                i++;
+
+                if (end !== -1) {
+                    const jsonObject = buffer.substring(start, end + 1);
+                    try {
+                        JSON.parse(jsonObject);
+                        res.write(`data: ${jsonObject}\n\n`);
+                        buffer = buffer.substring(end + 1);
+                        start = buffer.indexOf('{');
+                    } catch (e) {
+                        start = buffer.indexOf('{', start + 1);
+                    }
+                } else {
+                    break;
+                }
+            }
+            if (start !== -1) {
+                buffer = buffer.substring(start);
+            } else {
+                buffer = '';
             }
         });
 
