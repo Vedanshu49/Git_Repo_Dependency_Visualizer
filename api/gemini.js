@@ -43,34 +43,46 @@ module.exports = async (req, res) => {
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
 
-        // Process the stream from Gemini and forward it in the correct SSE format
         const reader = geminiResponse.body;
         const decoder = new TextDecoder();
         let buffer = '';
 
         reader.on('data', (chunk) => {
             buffer += decoder.decode(chunk, { stream: true });
-            
-            // The response from the Gemini API is a stream of JSON objects.
-            // They are usually newline-delimited.
-            let newlineIndex;
-            while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-                const line = buffer.substring(0, newlineIndex).trim();
-                buffer = buffer.substring(newlineIndex + 1);
 
-                if (line.startsWith('{')) {
-                    // Forward the raw JSON chunk from Gemini to the frontend
-                    res.write(`data: ${line}\n\n`);
+            let openBraces = 0;
+            let jsonStart = -1;
+            let i = 0;
+
+            while (i < buffer.length) {
+                if (buffer[i] === '{') {
+                    if (openBraces === 0) {
+                        jsonStart = i;
+                    }
+                    openBraces++;
+                } else if (buffer[i] === '}') {
+                    if (openBraces > 0) {
+                        openBraces--;
+                        if (openBraces === 0 && jsonStart !== -1) {
+                            const jsonObject = buffer.substring(jsonStart, i + 1);
+                            try {
+                                // Verify it's valid JSON before sending
+                                JSON.parse(jsonObject);
+                                res.write(`data: ${jsonObject}\n\n`);
+                                buffer = buffer.substring(i + 1);
+                                jsonStart = -1;
+                                i = -1; // Restart scan from the beginning of the new buffer
+                            } catch (e) {
+                                // Invalid JSON, continue scanning
+                            }
+                        }
+                    }
                 }
+                i++;
             }
         });
 
         reader.on('end', () => {
-            // Process any remaining data in the buffer
-            if (buffer.trim().startsWith('{')) {
-                // Forward the final raw JSON chunk
-                res.write(`data: ${buffer.trim()}\n\n`);
-            }
             res.end();
         });
 
