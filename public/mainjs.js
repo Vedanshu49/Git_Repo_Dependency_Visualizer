@@ -1257,9 +1257,7 @@ async function callGeminiAPI(prompt, onChunkReceived) {
     const apiUrl = '/api/gemini';
 
     const payload = {
-        contents: [{
-            parts: [{ text: prompt }]
-        }]
+        contents: [{ parts: [{ text: prompt }] }]
     };
 
     const response = await fetch(apiUrl, {
@@ -1289,27 +1287,36 @@ async function callGeminiAPI(prompt, onChunkReceived) {
         }
 
         buffer += decoder.decode(value, { stream: true });
-        
+
         let newlineIndex;
         while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
             const line = buffer.substring(0, newlineIndex).trim();
             buffer = buffer.substring(newlineIndex + 1);
 
+            // Log the raw chunk for debugging
+            console.log("[AI] Raw chunk:", line);
+
             if (line.startsWith('data: ')) {
-                try {
-                    const jsonStr = line.substring(6);
-                    if (jsonStr) {
-                        // console.log("[AI] Received data chunk:", jsonStr); // Too noisy
+                const jsonStr = line.substring(6).trim();
+                // Only parse if jsonStr looks like a valid JSON object
+                if (jsonStr.startsWith('{') && jsonStr.endsWith('}')) {
+                    try {
                         const json = JSON.parse(jsonStr);
-                        // Extract text from the complex Gemini response structure
-                        const part = json.candidates?.[0]?.content?.parts?.[0]?.text;
+                        // Support both old and new Gemini response formats
+                        let part = json.text;
+                        if (!part && json.candidates?.[0]?.content?.parts?.[0]?.text) {
+                            part = json.candidates[0].content.parts[0].text;
+                        }
                         if (part) {
                             resultText += part;
                             onChunkReceived(part);
                         }
+                    } catch (e) {
+                        console.error("[AI] Error parsing stream chunk:", e, "Chunk:", line);
                     }
-                } catch (e) {
-                    console.error("[AI] Error parsing stream chunk:", e, "Chunk:", line);
+                } else {
+                    // Skip malformed chunk
+                    console.warn("[AI] Skipping malformed chunk:", jsonStr);
                 }
             }
         }
@@ -1318,54 +1325,27 @@ async function callGeminiAPI(prompt, onChunkReceived) {
     // Process any remaining data in the buffer
     if (buffer.length > 0) {
         const line = buffer.trim();
+        console.log("[AI] Raw final chunk:", line);
         if (line.startsWith('data: ')) {
-            try {
-                const jsonStr = line.substring(6);
-                if (jsonStr) {
-                    // console.log("[AI] Received final data chunk:", jsonStr); // Too noisy
+            const jsonStr = line.substring(6).trim();
+            if (jsonStr.startsWith('{') && jsonStr.endsWith('}')) {
+                try {
                     const json = JSON.parse(jsonStr);
-                    const part = json.candidates?.[0]?.content?.parts?.[0]?.text;
+                    let part = json.text;
+                    if (!part && json.candidates?.[0]?.content?.parts?.[0]?.text) {
+                        part = json.candidates[0].content.parts[0].text;
+                    }
                     if (part) {
                         resultText += part;
                         onChunkReceived(part);
                     }
+                } catch (e) {
+                    console.error("[AI] Error parsing final stream chunk:", e, "Chunk:", line);
                 }
-            } catch (e) {
-                console.error("[AI] Error parsing final stream chunk:", e, "Chunk:", line);
+            } else {
+                console.warn("[AI] Skipping malformed final chunk:", jsonStr);
             }
         }
-    }
-    console.log("[AI] Final assembled text:", resultText);
-        // Print the response to the console for debugging
-        console.log("[AI] Response to display in UI:", resultText);
-    return resultText;
-}
-
-async function handleGenerateRepoOverview() {
-    const btn = document.getElementById('generateRepoOverviewBtn');
-    btn.disabled = true;
-    btn.innerHTML = 'Generating...';
-    aiModalTitle.textContent = 'AI-Powered Repository Overview';
-    aiModalResult.innerHTML = '<div class="custom-loader mx-auto"></div>';
-    openModal(aiModal);
-
-    try {
-        const fileList = repoFiles.map(f => f.path).join('\n');
-        const prompt = `Based on this list of file paths from a software repository, provide a high-level overview of the project's likely purpose and architecture. Format the response using Markdown. What kind of application is this? What technologies are likely being used?
-
-File list:
-${fileList}`;
-        aiModalResult.innerHTML = ''; // Clear content before streaming
-        let fullResponse = '';
-        await callGeminiAPI(prompt, (chunk) => {
-            fullResponse += chunk;
-            aiModalResult.innerHTML = simpleMarkdownToHtml(fullResponse);
-        });
-    } catch (error) {
-        aiModalResult.innerHTML = `<p class="text-red-400">Error: ${error.message}</p>`;
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = 'Generate Repo Overview';
     }
 }
 
