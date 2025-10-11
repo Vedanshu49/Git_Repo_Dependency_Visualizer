@@ -1304,6 +1304,8 @@ async function callGeminiAPI(prompt, onChunkReceived) {
     let buffer = '';
 
     console.log("[AI] Starting to read stream...");
+    let isBufferingJson = false;
+    let jsonBuffer = '';
     while (true) {
         const { done, value } = await reader.read();
         if (done) {
@@ -1321,13 +1323,17 @@ async function callGeminiAPI(prompt, onChunkReceived) {
             // Log the raw chunk for debugging
             console.log("[AI] Raw chunk:", line);
 
-            if (line.startsWith('data: ')) {
-                const jsonStr = line.substring(6).trim();
-                // Only parse if jsonStr looks like a valid JSON object
-                if (jsonStr.startsWith('{') && jsonStr.endsWith('}')) {
+            if (line.startsWith('data: {')) {
+                // Start buffering a new JSON object
+                isBufferingJson = true;
+                jsonBuffer = line.substring(6) + '\n';
+            } else if (isBufferingJson) {
+                jsonBuffer += line + '\n';
+                if (line === '}') {
+                    // End of JSON object
+                    isBufferingJson = false;
                     try {
-                        const json = JSON.parse(jsonStr);
-                        // Support both old and new Gemini response formats
+                        const json = JSON.parse(jsonBuffer);
                         let part = json.text;
                         if (!part && json.candidates?.[0]?.content?.parts?.[0]?.text) {
                             part = json.candidates[0].content.parts[0].text;
@@ -1337,38 +1343,10 @@ async function callGeminiAPI(prompt, onChunkReceived) {
                             onChunkReceived(part);
                         }
                     } catch (e) {
-                        console.error("[AI] Error parsing stream chunk:", e, "Chunk:", line);
+                        console.error("[AI] Error parsing buffered stream chunk:", e, "Chunk:", jsonBuffer);
                     }
-                } else {
-                    // Skip malformed chunk
-                    console.warn("[AI] Skipping malformed chunk:", jsonStr);
+                    jsonBuffer = '';
                 }
-            }
-        }
-    }
-
-    // Process any remaining data in the buffer
-    if (buffer.length > 0) {
-        const line = buffer.trim();
-        console.log("[AI] Raw final chunk:", line);
-        if (line.startsWith('data: ')) {
-            const jsonStr = line.substring(6).trim();
-            if (jsonStr.startsWith('{') && jsonStr.endsWith('}')) {
-                try {
-                    const json = JSON.parse(jsonStr);
-                    let part = json.text;
-                    if (!part && json.candidates?.[0]?.content?.parts?.[0]?.text) {
-                        part = json.candidates[0].content.parts[0].text;
-                    }
-                    if (part) {
-                        resultText += part;
-                        onChunkReceived(part);
-                    }
-                } catch (e) {
-                    console.error("[AI] Error parsing final stream chunk:", e, "Chunk:", line);
-                }
-            } else {
-                console.warn("[AI] Skipping malformed final chunk:", jsonStr);
             }
         }
     }
